@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>DocSnap</title>
+<meta name="theme-color" content="#00897b">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="DocSnap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<!-- Home -->
+<section id="home" class="view active">
+  <header class="bar"><h1>DocSnap</h1></header>
+  <main id="docList" class="list"></main>
+  <p id="empty" class="empty">No documents yet.<br>Tap <b>Scan</b> to capture your first one.</p>
+  <button id="fabScan" class="fab">＋ Scan</button>
+</section>
+
+<!-- Document -->
+<section id="doc" class="view">
+  <header class="bar">
+    <button class="icon" id="docBack" aria-label="Back">←</button>
+    <h1 id="docTitle"></h1>
+    <button class="icon" id="docRename" aria-label="Rename">✎</button>
+  </header>
+  <main id="pages" class="pages"></main>
+  <nav class="actions">
+    <button id="addPage">Add page</button>
+    <button id="ocrBtn">OCR</button>
+    <button id="pdfBtn">PDF</button>
+    <button id="docDelete" class="danger">Delete</button>
+  </nav>
+</section>
+
+<!-- Crop -->
+<section id="crop" class="view">
+  <header class="bar">
+    <button class="icon" id="cropCancel" aria-label="Cancel">✕</button>
+    <h1>Adjust corners</h1>
+    <button class="icon" id="cropReset" aria-label="Full image" title="Use full image">⤢</button>
+  </header>
+  <main class="cropwrap"><canvas id="cropCanvas"></canvas></main>
+  <p class="hint" id="cropHint">Drag the 4 circles to the page corners.</p>
+  <nav class="actions"><button id="cropRotate">⟳ Rotate</button><button id="cropDone" class="primary">✓ Done</button></nav>
+</section>
+
+<!-- OCR -->
+<section id="ocr" class="view">
+  <header class="bar">
+    <button class="icon" id="ocrBack" aria-label="Back">←</button>
+    <h1>Extracted text</h1>
+    <button class="icon" id="ocrCopy" aria-label="Copy">⧉</button>
+  </header>
+  <div class="ocrlang">Language:
+    <select id="ocrLang"><option value="eng">English</option><option value="hin">Hindi</option><option value="eng+hin">English + Hindi</option></select>
+    <button id="ocrRun">Run</button>
+  </div>
+  <textarea id="ocrText" readonly placeholder="Text will appear here"></textarea>
+</section>
+
+<input type="file" id="fileCam" accept="image/*" capture="environment" hidden>
+<input type="file" id="fileLib" accept="image/*" multiple hidden>
+
+<dialog id="srcDlg">
+  <h3>Add page</h3>
+  <button id="srcCam" class="primary">📷 Take photo</button>
+  <button id="srcLib">🖼 Choose from photos</button>
+  <button id="srcCancel">Cancel</button>
+</dialog>
+
+<div id="busy" class="busy" hidden><div class="spin"></div><p id="busyMsg">Working…</p></div>
+<div id="toast" class="toast"></div>
+
+<script src="vendor/jspdf.umd.min.js" defer></script>
+<script src="app.js" defer></script>
+</body>
+</html>
