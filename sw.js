@@ -1,4 +1,4 @@
-const VERSION = 'docsnap-v4';
+const VERSION = 'docsnap-v5';
 const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'vision.js', 'manifest.webmanifest',
   'vendor/jspdf.umd.min.js', 'tools.js', 'seg.html', 'vendor/pdf-lib.min.js', 'vendor/pdf.min.js', 'vendor/pdf.worker.min.js', 'vendor/opencv.js', 'vendor/tesseract.min.js', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png'];
 self.addEventListener('install', (e) => {

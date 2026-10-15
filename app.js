@@ -495,7 +495,7 @@ async function renderPage(p) {
   const { cv } = await loadCv();
   const c = await blobToCanvas(p.orig);
   const out = Vision.filter(cv, c, p.filter || 'original', p.bc);
-  p.img = await canvasToBlob(out, 0.9); Vision.free(c, out);
+  p.img = await canvasToBlob(out, 0.92); Vision.free(c, out);
 }
 /** Persist a new "orig" for the current page (optional) and re-apply its filter + adjustments. */
 async function savePage(orig) {
@@ -1045,7 +1045,7 @@ $('revDone').onclick = async () => {
       const out = Vision.filter(cv, c, p.filter || scan.filter, p.bc);
       pages.push({
         raw: p.raw, quad: p.quad, orig: p.orig,
-        img: await canvasToBlob(out, 0.9),
+        img: await canvasToBlob(out, 0.92),
         filter: p.filter || scan.filter, bc: p.bc || null, text: ''
       });
       Vision.free(c, out);
