@@ -1,6 +1,6 @@
-const VERSION = 'docsnap-v1';
+const VERSION = 'docsnap-v2';
 const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'manifest.webmanifest',
-  'vendor/jspdf.umd.min.js', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png'];
+  'vendor/jspdf.umd.min.js', 'tools.js', 'seg.html', 'vendor/pdf-lib.min.js', 'vendor/pdf.min.js', 'vendor/pdf.worker.min.js', 'vendor/opencv.js', 'vendor/tesseract.min.js', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png'];
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(VERSION).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
 });

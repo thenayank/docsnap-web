@@ -15,12 +15,46 @@
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-<!-- Home -->
+<!-- Home: Docs -->
 <section id="home" class="view active">
   <header class="bar"><h1>DocSnap</h1></header>
+  <div class="searchrow"><input id="search" type="search" placeholder="Search documents & text…" autocomplete="off"></div>
+  <div id="folders" class="chips"></div>
   <main id="docList" class="list"></main>
   <p id="empty" class="empty">No documents yet.<br>Tap <b>Scan</b> to capture your first one.</p>
   <button id="fabScan" class="fab">＋ Scan</button>
+  <nav class="tabs"><button class="tab on" data-tab="home">📄 Docs</button><button class="tab" data-tab="tools">🧰 Tools</button></nav>
+</section>
+
+<!-- Home: Tools -->
+<section id="tools" class="view">
+  <header class="bar"><h1>Tools</h1></header>
+  <main class="list">
+    <h3 class="sec">Scan</h3>
+    <div class="grid">
+      <button class="tool" data-tool="idcard"><i>🪪</i>ID Card<br><small>Front + back on A4</small></button>
+      <button class="tool" data-tool="passport"><i>🧑</i>Passport Photo<br><small>35×45 mm sheet</small></button>
+      <button class="tool" data-tool="signature"><i>✍️</i>My Signature<br><small>Draw & save</small></button>
+    </div>
+    <h3 class="sec">PDF tools</h3>
+    <div class="grid">
+      <button class="tool" data-tool="merge"><i>🔗</i>Merge PDFs</button>
+      <button class="tool" data-tool="split"><i>✂️</i>Split / Extract</button>
+      <button class="tool" data-tool="compress"><i>🗜️</i>Compress PDF</button>
+      <button class="tool" data-tool="lock"><i>🔒</i>Add Password</button>
+      <button class="tool" data-tool="unlock"><i>🔓</i>Remove Password</button>
+      <button class="tool" data-tool="img2pdf"><i>🖼️</i>Images → PDF</button>
+      <button class="tool" data-tool="pdf2img"><i>📸</i>PDF → Images</button>
+    </div>
+    <p class="note">Everything runs on your device. Files are never uploaded.</p>
+  </main>
+  <nav class="tabs"><button class="tab" data-tab="home">📄 Docs</button><button class="tab on" data-tab="tools">🧰 Tools</button></nav>
+</section>
+
+<!-- Generic tool panel -->
+<section id="tool" class="view">
+  <header class="bar"><button class="icon" id="toolBack" aria-label="Back">←</button><h1 id="toolTitle"></h1></header>
+  <main id="toolBody" class="list toolbody"></main>
 </section>
 
 <!-- Document -->
@@ -28,22 +62,63 @@
   <header class="bar">
     <button class="icon" id="docBack" aria-label="Back">←</button>
     <h1 id="docTitle"></h1>
-    <button class="icon" id="docRename" aria-label="Rename">✎</button>
+    <button class="icon" id="docMenu" aria-label="More">⋮</button>
   </header>
+  <p class="hint">Tap a page to edit · ◀ ▶ to reorder</p>
   <main id="pages" class="pages"></main>
   <nav class="actions">
     <button id="addPage">Add page</button>
     <button id="ocrBtn">OCR</button>
-    <button id="pdfBtn">PDF</button>
-    <button id="docDelete" class="danger">Delete</button>
+    <button id="pdfBtn" class="primary">PDF</button>
   </nav>
+</section>
+
+<!-- Page editor -->
+<section id="page" class="view">
+  <header class="bar"><button class="icon" id="pageBack" aria-label="Back">←</button><h1 id="pageTitle">Page</h1>
+    <button class="icon" id="pageDelete" aria-label="Delete page">🗑</button></header>
+  <main class="pageview"><img id="pageImg" alt=""></main>
+  <div id="filters" class="chips center">
+    <button data-f="original">Original</button><button data-f="magic">Magic</button>
+    <button data-f="bw">B&amp;W</button><button data-f="gray">Grayscale</button>
+  </div>
+  <nav class="actions">
+    <button id="pageRotate">⟳ Rotate</button><button id="pageSign">✍️ Sign</button><button id="pageWatermark">💧 Watermark</button>
+  </nav>
+</section>
+
+<!-- Signature pad -->
+<section id="sigpad" class="view">
+  <header class="bar"><button class="icon" id="sigBack" aria-label="Back">←</button><h1>Draw signature</h1></header>
+  <main class="sigwrap"><canvas id="sigCanvas"></canvas></main>
+  <p class="hint">Sign with your finger inside the box.</p>
+  <nav class="actions"><button id="sigClear">Clear</button><button id="sigSave" class="primary">Save</button></nav>
+</section>
+
+<!-- Place signature -->
+<section id="place" class="view">
+  <header class="bar"><button class="icon" id="placeBack" aria-label="Back">←</button><h1>Place signature</h1>
+    <button class="icon" id="placeRedraw" title="Draw new">✎</button></header>
+  <main class="cropwrap"><canvas id="placeCanvas"></canvas></main>
+  <div class="sliderrow">Size <input id="placeSize" type="range" min="5" max="80" value="30"></div>
+  <nav class="actions"><button id="placeDone" class="primary">✓ Apply</button></nav>
+</section>
+
+<!-- Passport photo -->
+<section id="passport" class="view">
+  <header class="bar"><button class="icon" id="ppBack" aria-label="Back">←</button><h1>Passport photo</h1></header>
+  <main class="ppwrap"><canvas id="ppCanvas" width="350" height="450"></canvas></main>
+  <p class="hint" id="ppHint">Drag to position the face inside the oval.</p>
+  <div class="sliderrow">Zoom <input id="ppZoom" type="range" min="100" max="400" value="100"></div>
+  <div class="sliderrow">Copies <select id="ppCopies"><option>4</option><option>8</option><option selected>12</option><option>20</option><option>30</option></select></div>
+  <nav class="actions"><button id="ppSingle">Photo JPG</button><button id="ppSheet" class="primary">A4 sheet</button></nav>
 </section>
 
 <!-- Crop -->
 <section id="crop" class="view">
   <header class="bar">
     <button class="icon" id="cropCancel" aria-label="Cancel">✕</button>
-    <h1>Adjust corners</h1>
+    <h1 id="cropTitle">Adjust corners</h1>
     <button class="icon" id="cropReset" aria-label="Full image" title="Use full image">⤢</button>
   </header>
   <main class="cropwrap"><canvas id="cropCanvas"></canvas></main>
@@ -60,25 +135,24 @@
   </header>
   <div class="ocrlang">Language:
     <select id="ocrLang"><option value="eng">English</option><option value="hin">Hindi</option><option value="eng+hin">English + Hindi</option></select>
-    <button id="ocrRun">Run</button>
+    <button id="ocrRun" class="primary">Run</button>
   </div>
-  <textarea id="ocrText" readonly placeholder="Text will appear here"></textarea>
+  <textarea id="ocrText" readonly placeholder="Text will appear here (and becomes searchable)"></textarea>
 </section>
 
-<input type="file" id="fileCam" accept="image/*" capture="environment" hidden>
-<input type="file" id="fileLib" accept="image/*" multiple hidden>
-
 <dialog id="srcDlg">
-  <h3>Add page</h3>
+  <h3 id="srcTitle">Add page</h3>
   <button id="srcCam" class="primary">📷 Take photo</button>
   <button id="srcLib">🖼 Choose from photos</button>
   <button id="srcCancel">Cancel</button>
 </dialog>
+<dialog id="menuDlg"><h3 id="menuTitle"></h3><div id="menuItems"></div></dialog>
 
 <div id="busy" class="busy" hidden><div class="spin"></div><p id="busyMsg">Working…</p></div>
 <div id="toast" class="toast"></div>
 
 <script src="vendor/jspdf.umd.min.js" defer></script>
 <script src="app.js" defer></script>
+<script src="tools.js" defer></script>
 </body>
 </html>
