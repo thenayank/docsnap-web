@@ -2,9 +2,11 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
 <title>DocSnap</title>
-<meta name="theme-color" content="#00897b">
+<meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+<meta name="color-scheme" content="light dark">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
@@ -15,141 +17,240 @@
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-<!-- Home: Docs -->
-<section id="home" class="view active">
-  <header class="bar"><h1>DocSnap</h1></header>
-  <div class="searchrow"><input id="search" type="search" placeholder="Search documents & text…" autocomplete="off"></div>
-  <div id="folders" class="chips"></div>
-  <main id="docList" class="list"></main>
-  <p id="empty" class="empty">No documents yet.<br>Tap <b>Scan</b> to capture your first one.</p>
-  <button id="fabScan" class="fab">＋ Scan</button>
-  <nav class="tabs"><button class="tab on" data-tab="home">📄 Docs</button><button class="tab" data-tab="tools">🧰 Tools</button></nav>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-doc" viewBox="0 0 24 24"><path d="M7 3h7l5 5v12a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M14 3v5h5"/></symbol>
+    <symbol id="i-docs" viewBox="0 0 24 24"><path d="M8 3h6l5 5v10a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M14 3v5h5"/><path d="M4 7v13a1 1 0 0 0 1 1h10"/></symbol>
+    <symbol id="i-text" viewBox="0 0 24 24"><path d="M7 3h7l5 5v12a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M14 3v5h5M9.5 12.5h5M9.5 16h5"/></symbol>
+    <symbol id="i-camera" viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13.5" r="3.5"/></symbol>
+    <symbol id="i-scan" viewBox="0 0 24 24"><path d="M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16"/><path d="M8.5 9h7M8.5 12h7M8.5 15h4.5"/></symbol>
+    <symbol id="i-tools" viewBox="0 0 24 24"><rect x="4" y="4" width="6.5" height="6.5" rx="1.8"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.8"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.8"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.8"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 7h9M18 7h2M4 17h3M12 17h8"/><circle cx="15.5" cy="7" r="2.3"/><circle cx="9.5" cy="17" r="2.3"/></symbol>
+    <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 4.5L7.5 12 15 19.5"/></symbol>
+    <symbol id="i-chev" viewBox="0 0 24 24"><path d="M9.5 6l6 6-6 6"/></symbol>
+    <symbol id="i-more" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="8" cy="12" r=".6"/><circle cx="12" cy="12" r=".6"/><circle cx="16" cy="12" r=".6"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4 4"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6H9l2 2h8.5A1.5 1.5 0 0 1 21 9.5v8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9.5 7V4.5h5V7M6 7l1 13h10l1-13M10 11v5M14 11v5"/></symbol>
+    <symbol id="i-share" viewBox="0 0 24 24"><path d="M12 3.5v11M8 7.5l4-4 4 4"/><path d="M8 11H6v9.5h12V11h-2"/></symbol>
+    <symbol id="i-rotate" viewBox="0 0 24 24"><path d="M19.5 12.5A7.5 7.5 0 1 1 17 6.4"/><path d="M19 3.5v4h-4"/></symbol>
+    <symbol id="i-crop" viewBox="0 0 24 24"><path d="M6 2.5V16a2 2 0 0 0 2 2h13.5"/><path d="M2.5 6H16a2 2 0 0 1 2 2v13.5"/></symbol>
+    <symbol id="i-sign" viewBox="0 0 24 24"><path d="M3 16c2.5-5 4.5-8 5.5-7.2 1.2 1-2.2 7.2-.2 7.2 1.7 0 2.7-4.2 4.6-4.2 1.4 0-.4 4.2 1.2 4.2 1.3 0 2.4-1.4 3.4-2.6"/><path d="M3 20.5h18"/></symbol>
+    <symbol id="i-drop" viewBox="0 0 24 24"><path d="M12 3.5s6 6.3 6 10.8a6 6 0 0 1-12 0C6 9.8 12 3.5 12 3.5z"/></symbol>
+    <symbol id="i-wand" viewBox="0 0 24 24"><path d="M4 20L15 9l-1.5-1.5L2.5 18.5z"/><path d="M17 3v3M15.5 4.5h3M20 8v2M19 9h2M10 3.5v2M9 4.5h2"/></symbol>
+    <symbol id="i-photo" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2.5"/><circle cx="9" cy="10" r="1.7"/><path d="M21 15.5l-4.5-4.5L8 19"/></symbol>
+    <symbol id="i-photos" viewBox="0 0 24 24"><rect x="3" y="7" width="15" height="13" rx="2.5"/><path d="M7 4h11.5A2.5 2.5 0 0 1 21 6.5V16"/><path d="M18 16l-4-4-7 8"/></symbol>
+    <symbol id="i-merge" viewBox="0 0 24 24"><rect x="8" y="3" width="12" height="14" rx="2"/><path d="M16 21H6a2 2 0 0 1-2-2V7"/><path d="M11.5 10h5M14 7.5v5"/></symbol>
+    <symbol id="i-split" viewBox="0 0 24 24"><circle cx="6" cy="7" r="2.6"/><circle cx="6" cy="17" r="2.6"/><path d="M8.2 8.5L20 17.5M8.2 15.5L20 6.5"/></symbol>
+    <symbol id="i-compress" viewBox="0 0 24 24"><path d="M4 14h6v6M20 10h-6V4M14 10l6.5-6.5M3.5 20.5L10 14"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="10" rx="2.5"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/></symbol>
+    <symbol id="i-unlock" viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="10" rx="2.5"/><path d="M8 10.5V8a4 4 0 0 1 7.6-1.8"/></symbol>
+    <symbol id="i-id" viewBox="0 0 24 24"><rect x="2.5" y="5" width="19" height="14" rx="2.5"/><circle cx="8.5" cy="10.5" r="2"/><path d="M5.5 15.5c.6-1.4 1.7-2 3-2s2.4.6 3 2M14 10h4.5M14 13.5h3"/></symbol>
+    <symbol id="i-person" viewBox="0 0 24 24"><rect x="4" y="2.5" width="16" height="19" rx="2.5"/><circle cx="12" cy="10" r="3.2"/><path d="M6.5 19c.8-2.8 3-4.3 5.5-4.3s4.7 1.5 5.5 4.3"/></symbol>
+    <symbol id="i-img2pdf" viewBox="0 0 24 24"><rect x="2.5" y="4" width="11" height="9" rx="1.8"/><path d="M13.5 10.5L10 7.5l-5.5 5.5"/><path d="M14 11h4l3 3v6a1 1 0 0 1-1 1h-6a1 1 0 0 1-1-1v-3"/></symbol>
+    <symbol id="i-pdf2img" viewBox="0 0 24 24"><path d="M7 3h7l5 5v12a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M14 3v5h5"/><path d="M9 17.5l2.5-3 1.8 2 1.2-1.3 1.5 2.3"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8.5" y="8.5" width="12" height="12" rx="2.5"/><path d="M15.5 8.5V6a2.5 2.5 0 0 0-2.5-2.5H6A2.5 2.5 0 0 0 3.5 6v7A2.5 2.5 0 0 0 6 15.5h2.5"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></symbol>
+    <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2.5L5 13.5h6l-1 8 8-11h-6z"/></symbol>
+    <symbol id="i-grid" viewBox="0 0 24 24"><rect x="4" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5"/></symbol>
+    <symbol id="i-list" viewBox="0 0 24 24"><path d="M9 6.5h11M9 12h11M9 17.5h11"/><circle cx="4.8" cy="6.5" r=".9"/><circle cx="4.8" cy="12" r=".9"/><circle cx="4.8" cy="17.5" r=".9"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M4 20l1.2-4.2L16 5l3 3L8.2 18.8z"/><path d="M14 7l3 3"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l7 3v5.5c0 4.5-3 8-7 9.5-4-1.5-7-5-7-9.5V6z"/><path d="M9 12l2 2 4-4"/></symbol>
+    <symbol id="i-storage" viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="7.5" ry="2.8"/><path d="M4.5 6v12c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8V6M4.5 12c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8"/></symbol>
+    <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.5 2.5 3.5 5.5 3.5 8.5s-1 6-3.5 8.5c-2.5-2.5-3.5-5.5-3.5-8.5s1-6 3.5-8.5z"/></symbol>
+    <symbol id="i-reset" viewBox="0 0 24 24"><path d="M4 9V4.5h4.5M4 4.5L9 9.5"/><path d="M20 15v4.5h-4.5M20 19.5L15 14.5"/><path d="M4 15v4.5h4.5M20 9V4.5h-4.5"/></symbol>
+  </defs>
+</svg>
+
+<div id="app">
+<!-- ============ TAB: Documents ============ -->
+<section id="home" class="view tabview active" data-title="Documents">
+  <header class="nav"><div class="nav-l"></div><div class="nav-t">Documents</div>
+    <div class="nav-r"><button class="nbtn" id="viewToggle" aria-label="Change layout"></button></div></header>
+  <div class="scroll">
+    <h1 class="large">Documents</h1>
+    <label class="search"><svg class="i"><use href="#i-search"/></svg><input id="search" type="search" placeholder="Search" autocomplete="off" enterkeyhint="search"></label>
+    <div id="folders" class="chips"></div>
+    <div id="docList"></div>
+  </div>
 </section>
 
-<!-- Home: Tools -->
-<section id="tools" class="view">
-  <header class="bar"><h1>Tools</h1></header>
-  <main class="list">
-    <h3 class="sec">Scan</h3>
-    <div class="grid">
-      <button class="tool" data-tool="idcard"><i>🪪</i>ID Card<br><small>Front + back on A4</small></button>
-      <button class="tool" data-tool="passport"><i>🧑</i>Passport Photo<br><small>35×45 mm sheet</small></button>
-      <button class="tool" data-tool="signature"><i>✍️</i>My Signature<br><small>Draw & save</small></button>
+<!-- ============ TAB: Tools ============ -->
+<section id="tools" class="view tabview" data-title="Tools">
+  <header class="nav"><div class="nav-l"></div><div class="nav-t">Tools</div><div class="nav-r"></div></header>
+  <div class="scroll">
+    <h1 class="large">Tools</h1>
+    <h2 class="ghead">Scan</h2>
+    <div class="group">
+      <button class="cell" data-tool="idcard"><span class="ic"><svg class="i"><use href="#i-id"/></svg></span><span class="ct"><b>ID Card</b><small>Front and back on one page</small></span><svg class="i chev"><use href="#i-chev"/></svg></button>
+      <button class="cell" data-tool="passport"><span class="ic"><svg class="i"><use href="#i-person"/></svg></span><span class="ct"><b>Passport Photo</b><small>35 × 45 mm with white background</small></span><svg class="i chev"><use href="#i-chev"/></svg></button>
+      <button class="cell" data-tool="signature"><span class="ic"><svg class="i"><use href="#i-sign"/></svg></span><span class="ct"><b>My Signature</b><small>Draw once, sign any page</small></span><svg class="i chev"><use href="#i-chev"/></svg></button>
     </div>
-    <h3 class="sec">PDF tools</h3>
-    <div class="grid">
-      <button class="tool" data-tool="merge"><i>🔗</i>Merge PDFs</button>
-      <button class="tool" data-tool="split"><i>✂️</i>Split / Extract</button>
-      <button class="tool" data-tool="compress"><i>🗜️</i>Compress PDF</button>
-      <button class="tool" data-tool="lock"><i>🔒</i>Add Password</button>
-      <button class="tool" data-tool="unlock"><i>🔓</i>Remove Password</button>
-      <button class="tool" data-tool="img2pdf"><i>🖼️</i>Images → PDF</button>
-      <button class="tool" data-tool="pdf2img"><i>📸</i>PDF → Images</button>
+    <h2 class="ghead">PDF</h2>
+    <div class="group">
+      <button class="cell" data-tool="merge"><span class="ic"><svg class="i"><use href="#i-merge"/></svg></span><span class="ct"><b>Combine PDFs</b><small>Join several files into one</small></span><svg class="i chev"><use href="#i-chev"/></svg></button>
+      <button class="cell" data-tool="split"><span class="ic"><svg class="i"><use href="#i-split"/></svg></span><span class="ct"><b>Split PDF</b><small>Take out the pages you need</small></span><svg class="i chev"><use href="#i-chev"/></svg></button>
+      <button class="cell" data-tool="compress"><span class="ic"><svg class="i"><use href="#i-compress"/></svg></span><span class="ct"><b>Reduce File Size</b><small>Make scanned PDFs smaller</small></span><svg class="i chev"><use href="#i-chev"/></svg></button>
+      <button class="cell" data-tool="lock"><span class="ic"><svg class="i"><use href="#i-lock"/></svg></span><span class="ct"><b>Add Password</b><small>Protect a PDF</small></span><svg class="i chev"><use href="#i-chev"/></svg></button>
+      <button class="cell" data-tool="unlock"><span class="ic"><svg class="i"><use href="#i-unlock"/></svg></span><span class="ct"><b>Remove Password</b><small>Open without a password</small></span><svg class="i chev"><use href="#i-chev"/></svg></button>
+      <button class="cell" data-tool="img2pdf"><span class="ic"><svg class="i"><use href="#i-img2pdf"/></svg></span><span class="ct"><b>Photos to PDF</b><small>Turn pictures into a PDF</small></span><svg class="i chev"><use href="#i-chev"/></svg></button>
+      <button class="cell" data-tool="pdf2img"><span class="ic"><svg class="i"><use href="#i-pdf2img"/></svg></span><span class="ct"><b>PDF to Photos</b><small>Save each page as an image</small></span><svg class="i chev"><use href="#i-chev"/></svg></button>
     </div>
-    <p class="note">Everything runs on your device. Files are never uploaded.</p>
-  </main>
-  <nav class="tabs"><button class="tab" data-tab="home">📄 Docs</button><button class="tab on" data-tab="tools">🧰 Tools</button></nav>
+    <p class="foot"><svg class="i"><use href="#i-shield"/></svg> Everything happens on your iPhone. Nothing is uploaded.</p>
+  </div>
 </section>
 
-<!-- Generic tool panel -->
+<!-- ============ TAB: Settings ============ -->
+<section id="settings" class="view tabview" data-title="Settings">
+  <header class="nav"><div class="nav-l"></div><div class="nav-t">Settings</div><div class="nav-r"></div></header>
+  <div class="scroll">
+    <h1 class="large">Settings</h1>
+    <h2 class="ghead">Scanning</h2>
+    <div class="group">
+      <div class="cell"><span class="ic"><svg class="i"><use href="#i-bolt"/></svg></span><span class="ct"><b>Auto-Capture</b><small>Take the photo when the page is steady</small></span><label class="switch"><input type="checkbox" id="setAuto"><span></span></label></div>
+      <button class="cell" id="setFilterBtn"><span class="ic"><svg class="i"><use href="#i-wand"/></svg></span><span class="ct"><b>Default Look</b></span><span class="val" id="setFilterVal"></span><svg class="i chev"><use href="#i-chev"/></svg></button>
+      <button class="cell" id="setLangBtn"><span class="ic"><svg class="i"><use href="#i-globe"/></svg></span><span class="ct"><b>Text Language</b></span><span class="val" id="setLangVal"></span><svg class="i chev"><use href="#i-chev"/></svg></button>
+    </div>
+    <h2 class="ghead">Signature</h2>
+    <div class="group"><button class="cell" data-tool="signature"><span class="ic"><svg class="i"><use href="#i-sign"/></svg></span><span class="ct"><b>My Signature</b></span><span class="val" id="setSigVal"></span><svg class="i chev"><use href="#i-chev"/></svg></button></div>
+    <h2 class="ghead">Storage</h2>
+    <div class="group">
+      <div class="cell"><span class="ic"><svg class="i"><use href="#i-storage"/></svg></span><span class="ct"><b>Used on this device</b></span><span class="val" id="setStorage">–</span></div>
+      <button class="cell danger" id="setWipe"><span class="ic"><svg class="i"><use href="#i-trash"/></svg></span><span class="ct"><b>Delete All Documents</b></span></button>
+    </div>
+    <p class="foot"><svg class="i"><use href="#i-shield"/></svg> DocSnap keeps your documents only on this device. Add it to your Home Screen from Safari's Share menu to use it like an app, even offline.</p>
+    <p class="foot small">DocSnap 2.0</p>
+  </div>
+</section>
+
+<!-- ============ Pushed: Tool panel ============ -->
 <section id="tool" class="view">
-  <header class="bar"><button class="icon" id="toolBack" aria-label="Back">←</button><h1 id="toolTitle"></h1></header>
-  <main id="toolBody" class="list toolbody"></main>
+  <header class="nav solid"><div class="nav-l"><button class="nbtn back" data-back="tools"><svg class="i"><use href="#i-back"/></svg>Tools</button></div><div class="nav-t" id="toolTitle"></div><div class="nav-r"></div></header>
+  <div class="scroll"><div id="toolBody" class="toolbody"></div></div>
+  <footer class="cta" id="toolCta"></footer>
 </section>
 
-<!-- Document -->
+<!-- ============ Pushed: Document ============ -->
 <section id="doc" class="view">
-  <header class="bar">
-    <button class="icon" id="docBack" aria-label="Back">←</button>
-    <h1 id="docTitle"></h1>
-    <button class="icon" id="docMenu" aria-label="More">⋮</button>
-  </header>
-  <p class="hint">Tap a page to edit · ◀ ▶ to reorder</p>
-  <main id="pages" class="pages"></main>
-  <nav class="actions">
-    <button id="addPage">Add page</button>
-    <button id="ocrBtn">OCR</button>
-    <button id="pdfBtn" class="primary">PDF</button>
-  </nav>
+  <header class="nav"><div class="nav-l"><button class="nbtn back" id="docBack"><svg class="i"><use href="#i-back"/></svg>Documents</button></div>
+    <div class="nav-t"></div><div class="nav-r"><button class="nbtn" id="docMenu" aria-label="More"><svg class="i"><use href="#i-more"/></svg></button></div></header>
+  <div class="scroll">
+    <button class="doctitle" id="docTitle"></button>
+    <p class="docmeta" id="docMeta"></p>
+    <div id="pages" class="pages"></div>
+    <p class="tip">Touch and hold a page to reorder</p>
+  </div>
+  <footer class="toolbar">
+    <button class="tb" id="addPage"><svg class="i"><use href="#i-camera"/></svg><span>Add Page</span></button>
+    <button class="tb" id="ocrBtn"><svg class="i"><use href="#i-text"/></svg><span>Text</span></button>
+    <button class="tb" id="pdfBtn"><svg class="i"><use href="#i-share"/></svg><span>Share PDF</span></button>
+  </footer>
 </section>
 
-<!-- Page editor -->
+<!-- ============ Pushed: Page editor ============ -->
 <section id="page" class="view">
-  <header class="bar"><button class="icon" id="pageBack" aria-label="Back">←</button><h1 id="pageTitle">Page</h1>
-    <button class="icon" id="pageDelete" aria-label="Delete page">🗑</button></header>
-  <main class="pageview"><img id="pageImg" alt=""></main>
-  <div id="filters" class="chips center">
-    <button data-f="original">Original</button><button data-f="magic">Magic</button>
-    <button data-f="bw">B&amp;W</button><button data-f="gray">Grayscale</button>
-  </div>
-  <nav class="actions">
-    <button id="pageRotate">⟳ Rotate</button><button id="pageSign">✍️ Sign</button><button id="pageWatermark">💧 Watermark</button>
-  </nav>
+  <header class="nav solid"><div class="nav-l"><button class="nbtn back" id="pageBack"><svg class="i"><use href="#i-back"/></svg>Back</button></div>
+    <div class="nav-t" id="pageTitle">Page</div><div class="nav-r"><button class="nbtn red" id="pageDelete" aria-label="Delete page"><svg class="i"><use href="#i-trash"/></svg></button></div></header>
+  <div class="pageview"><img id="pageImg" alt=""></div>
+  <div id="filters" class="filters"></div>
+  <footer class="toolbar">
+    <button class="tb" id="pageCrop"><svg class="i"><use href="#i-crop"/></svg><span>Crop</span></button>
+    <button class="tb" id="pageRotate"><svg class="i"><use href="#i-rotate"/></svg><span>Rotate</span></button>
+    <button class="tb" id="pageSign"><svg class="i"><use href="#i-sign"/></svg><span>Sign</span></button>
+    <button class="tb" id="pageWatermark"><svg class="i"><use href="#i-drop"/></svg><span>Watermark</span></button>
+  </footer>
 </section>
 
-<!-- Signature pad -->
-<section id="sigpad" class="view">
-  <header class="bar"><button class="icon" id="sigBack" aria-label="Back">←</button><h1>Draw signature</h1></header>
-  <main class="sigwrap"><canvas id="sigCanvas"></canvas></main>
-  <p class="hint">Sign with your finger inside the box.</p>
-  <nav class="actions"><button id="sigClear">Clear</button><button id="sigSave" class="primary">Save</button></nav>
-</section>
-
-<!-- Place signature -->
-<section id="place" class="view">
-  <header class="bar"><button class="icon" id="placeBack" aria-label="Back">←</button><h1>Place signature</h1>
-    <button class="icon" id="placeRedraw" title="Draw new">✎</button></header>
-  <main class="cropwrap"><canvas id="placeCanvas"></canvas></main>
-  <div class="sliderrow">Size <input id="placeSize" type="range" min="5" max="80" value="30"></div>
-  <nav class="actions"><button id="placeDone" class="primary">✓ Apply</button></nav>
-</section>
-
-<!-- Passport photo -->
-<section id="passport" class="view">
-  <header class="bar"><button class="icon" id="ppBack" aria-label="Back">←</button><h1>Passport photo</h1></header>
-  <main class="ppwrap"><canvas id="ppCanvas" width="350" height="450"></canvas></main>
-  <p class="hint" id="ppHint">Drag to position the face inside the oval.</p>
-  <div class="sliderrow">Zoom <input id="ppZoom" type="range" min="100" max="400" value="100"></div>
-  <div class="sliderrow">Copies <select id="ppCopies"><option>4</option><option>8</option><option selected>12</option><option>20</option><option>30</option></select></div>
-  <nav class="actions"><button id="ppSingle">Photo JPG</button><button id="ppSheet" class="primary">A4 sheet</button></nav>
-</section>
-
-<!-- Crop -->
-<section id="crop" class="view">
-  <header class="bar">
-    <button class="icon" id="cropCancel" aria-label="Cancel">✕</button>
-    <h1 id="cropTitle">Adjust corners</h1>
-    <button class="icon" id="cropReset" aria-label="Full image" title="Use full image">⤢</button>
+<!-- ============ Full-screen: Camera ============ -->
+<section id="camera" class="view dark full">
+  <video id="camVideo" playsinline muted autoplay></video>
+  <canvas id="camOverlay"></canvas>
+  <div class="flash" id="camFlash"></div>
+  <header class="camtop">
+    <button class="round glass" id="camClose" aria-label="Close"><svg class="i"><use href="#i-x"/></svg></button>
+    <div class="pill glass" id="camHint">Point at a document</div>
+    <button class="round glass on" id="camAuto" aria-label="Auto-capture"><svg class="i"><use href="#i-bolt"/></svg></button>
   </header>
-  <main class="cropwrap"><canvas id="cropCanvas"></canvas></main>
-  <p class="hint" id="cropHint">Drag the 4 circles to the page corners.</p>
-  <nav class="actions"><button id="cropRotate">⟳ Rotate</button><button id="cropDone" class="primary">✓ Done</button></nav>
+  <footer class="cambot">
+    <button class="round glass big" id="camPhotos" aria-label="Choose from Photos"><svg class="i"><use href="#i-photos"/></svg></button>
+    <button class="shutter" id="camShutter" aria-label="Take photo"><span></span></button>
+    <button class="stack" id="camDone" aria-label="Done"><img id="camThumb" alt=""><b id="camCount">0</b><em>Done</em></button>
+  </footer>
 </section>
 
-<!-- OCR -->
+<!-- ============ Full-screen: Crop ============ -->
+<section id="crop" class="view dark full">
+  <header class="nav dark"><div class="nav-l"><button class="nbtn txt" id="cropCancel">Cancel</button></div><div class="nav-t" id="cropTitle">Adjust Corners</div>
+    <div class="nav-r"><button class="nbtn txt bold" id="cropDone">Done</button></div></header>
+  <div class="cropwrap"><canvas id="cropCanvas"></canvas></div>
+  <p class="hint" id="cropHint">Drag the corners to the edges of the page</p>
+  <footer class="toolbar dark">
+    <button class="tb" id="cropRotate"><svg class="i"><use href="#i-rotate"/></svg><span>Rotate</span></button>
+    <button class="tb" id="cropReset"><svg class="i"><use href="#i-reset"/></svg><span>Whole Photo</span></button>
+  </footer>
+</section>
+
+<!-- ============ Pushed: OCR ============ -->
 <section id="ocr" class="view">
-  <header class="bar">
-    <button class="icon" id="ocrBack" aria-label="Back">←</button>
-    <h1>Extracted text</h1>
-    <button class="icon" id="ocrCopy" aria-label="Copy">⧉</button>
-  </header>
-  <div class="ocrlang">Language:
-    <select id="ocrLang"><option value="eng">English</option><option value="hin">Hindi</option><option value="eng+hin">English + Hindi</option></select>
-    <button id="ocrRun" class="primary">Run</button>
+  <header class="nav solid"><div class="nav-l"><button class="nbtn back" id="ocrBack"><svg class="i"><use href="#i-back"/></svg>Back</button></div>
+    <div class="nav-t">Text</div><div class="nav-r"><button class="nbtn txt" id="ocrCopy">Copy</button></div></header>
+  <div class="scroll">
+    <div class="seg" id="ocrLang"><button data-v="eng">English</button><button data-v="hin">Hindi</button><button data-v="eng+hin">Both</button></div>
+    <div class="textcard" id="ocrText" data-empty="Text from your pages will appear here."></div>
   </div>
-  <textarea id="ocrText" readonly placeholder="Text will appear here (and becomes searchable)"></textarea>
+  <footer class="cta"><button class="btn primary" id="ocrRun">Find Text Again</button></footer>
 </section>
 
-<dialog id="srcDlg">
-  <h3 id="srcTitle">Add page</h3>
-  <button id="srcCam" class="primary">📷 Take photo</button>
-  <button id="srcLib">🖼 Choose from photos</button>
-  <button id="srcCancel">Cancel</button>
-</dialog>
-<dialog id="menuDlg"><h3 id="menuTitle"></h3><div id="menuItems"></div></dialog>
+<!-- ============ Modal: Signature pad ============ -->
+<section id="sigpad" class="view">
+  <header class="nav solid"><div class="nav-l"><button class="nbtn txt" id="sigBack">Cancel</button></div><div class="nav-t">Signature</div>
+    <div class="nav-r"><button class="nbtn txt bold" id="sigSave">Done</button></div></header>
+  <div class="sigwrap"><div class="sigbox"><canvas id="sigCanvas"></canvas><div class="sigline"><span>×</span>Sign here</div></div></div>
+  <footer class="cta"><button class="btn" id="sigClear">Clear</button></footer>
+</section>
 
-<div id="busy" class="busy" hidden><div class="spin"></div><p id="busyMsg">Working…</p></div>
+<!-- ============ Place signature ============ -->
+<section id="place" class="view dark full">
+  <header class="nav dark"><div class="nav-l"><button class="nbtn txt" id="placeBack">Cancel</button></div><div class="nav-t">Place Signature</div>
+    <div class="nav-r"><button class="nbtn txt bold" id="placeDone">Apply</button></div></header>
+  <div class="cropwrap"><canvas id="placeCanvas"></canvas></div>
+  <div class="sliderrow dark"><svg class="i sm"><use href="#i-sign"/></svg><input id="placeSize" type="range" min="8" max="70" value="30"><svg class="i"><use href="#i-sign"/></svg></div>
+  <footer class="toolbar dark"><button class="tb" id="placeRedraw"><svg class="i"><use href="#i-pencil"/></svg><span>Draw New</span></button></footer>
+</section>
+
+<!-- ============ Passport ============ -->
+<section id="passport" class="view">
+  <header class="nav solid"><div class="nav-l"><button class="nbtn back" id="ppBack"><svg class="i"><use href="#i-back"/></svg>Tools</button></div><div class="nav-t">Passport Photo</div><div class="nav-r"></div></header>
+  <div class="scroll pp">
+    <div class="ppframe"><canvas id="ppCanvas" width="420" height="540"></canvas></div>
+    <p class="hint" id="ppHint">Drag to place the face inside the oval</p>
+    <div class="sliderrow"><svg class="i sm"><use href="#i-search"/></svg><input id="ppZoom" type="range" min="100" max="500" value="100"><svg class="i"><use href="#i-search"/></svg></div>
+    <h2 class="ghead">Copies on A4 sheet</h2>
+    <div class="seg" id="ppCopies"><button data-v="4">4</button><button data-v="8">8</button><button data-v="12" class="on">12</button><button data-v="20">20</button><button data-v="30">30</button></div>
+  </div>
+  <footer class="cta row2"><button class="btn" id="ppSingle">Save Photo</button><button class="btn primary" id="ppSheet">Make A4 Sheet</button></footer>
+</section>
+</div>
+
+<!-- ============ Tab bar ============ -->
+<nav class="tabbar" id="tabbar">
+  <button class="tab on" data-tab="home"><svg class="i"><use href="#i-docs"/></svg><span>Documents</span></button>
+  <button class="tab" data-tab="tools"><svg class="i"><use href="#i-tools"/></svg><span>Tools</span></button>
+  <button class="scanbtn" id="tabScan" aria-label="Scan"><svg class="i"><use href="#i-scan"/></svg></button>
+  <button class="tab" data-tab="search"><svg class="i"><use href="#i-search"/></svg><span>Search</span></button>
+  <button class="tab" data-tab="settings"><svg class="i"><use href="#i-settings"/></svg><span>Settings</span></button>
+</nav>
+
+<!-- Sheet + alert containers -->
+<div id="scrim" class="scrim"></div>
+<div id="sheet" class="sheet" role="dialog" aria-modal="true"><div class="grabber"></div><div id="sheetBody"></div></div>
+<div id="alert" class="alert" role="alertdialog" aria-modal="true"></div>
+<div id="busy" class="hud" hidden><div class="spin"></div><span id="busyMsg">Working…</span></div>
 <div id="toast" class="toast"></div>
+<input type="file" id="fileCam" accept="image/*" capture="environment" hidden>
 
 <script src="vendor/jspdf.umd.min.js" defer></script>
 <script src="app.js" defer></script>
