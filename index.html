@@ -62,6 +62,10 @@
     <symbol id="i-storage" viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="7.5" ry="2.8"/><path d="M4.5 6v12c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8V6M4.5 12c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8"/></symbol>
     <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.5 2.5 3.5 5.5 3.5 8.5s-1 6-3.5 8.5c-2.5-2.5-3.5-5.5-3.5-8.5s1-6 3.5-8.5z"/></symbol>
     <symbol id="i-reset" viewBox="0 0 24 24"><path d="M4 9V4.5h4.5M4 4.5L9 9.5"/><path d="M20 15v4.5h-4.5M20 19.5L15 14.5"/><path d="M4 15v4.5h4.5M20 9V4.5h-4.5"/></symbol>
+    <symbol id="i-sliders" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 3.5v17"/><path d="M12 3.5a8.5 8.5 0 0 1 0 17z" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 19.5h14"/></symbol>
+    <symbol id="i-pdf" viewBox="0 0 24 24"><path d="M7 3h7l5 5v12a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M14 3v5h5"/><path d="M9 13.5h1.5a1.2 1.2 0 0 1 0 2.4H9v-2.4zm0 2.4V18M13 13.5v4.5h1a1.8 1.8 0 0 0 0-3.6h-1"/></symbol>
+    <symbol id="i-retake" viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><path d="M15 13.5a3 3 0 1 1-1-2.2"/><path d="M14.5 9.5v2h-2"/></symbol>
   </defs>
 </svg>
 
@@ -110,7 +114,6 @@
     <h1 class="large">Settings</h1>
     <h2 class="ghead">Scanning</h2>
     <div class="group">
-      <div class="cell"><span class="ic"><svg class="i"><use href="#i-bolt"/></svg></span><span class="ct"><b>Auto-Capture</b><small>Take the photo when the page is steady</small></span><label class="switch"><input type="checkbox" id="setAuto"><span></span></label></div>
       <button class="cell" id="setFilterBtn"><span class="ic"><svg class="i"><use href="#i-wand"/></svg></span><span class="ct"><b>Default Look</b></span><span class="val" id="setFilterVal"></span><svg class="i chev"><use href="#i-chev"/></svg></button>
       <button class="cell" id="setLangBtn"><span class="ic"><svg class="i"><use href="#i-globe"/></svg></span><span class="ct"><b>Text Language</b></span><span class="val" id="setLangVal"></span><svg class="i chev"><use href="#i-chev"/></svg></button>
     </div>
@@ -122,7 +125,7 @@
       <button class="cell danger" id="setWipe"><span class="ic"><svg class="i"><use href="#i-trash"/></svg></span><span class="ct"><b>Delete All Documents</b></span></button>
     </div>
     <p class="foot"><svg class="i"><use href="#i-shield"/></svg> DocSnap keeps your documents only on this device. Add it to your Home Screen from Safari's Share menu to use it like an app, even offline.</p>
-    <p class="foot small">DocSnap 2.0</p>
+    <p class="foot small">DocSnap 3.0</p>
   </div>
 </section>
 
@@ -139,57 +142,68 @@
     <div class="nav-t"></div><div class="nav-r"><button class="nbtn" id="docMenu" aria-label="More"><svg class="i"><use href="#i-more"/></svg></button></div></header>
   <div class="scroll">
     <button class="doctitle" id="docTitle"></button>
-    <p class="docmeta" id="docMeta"></p>
+    <p class="renamehint">Tap to rename</p>
+    <div class="docinfo" id="docMeta"></div>
+    <label class="search" id="docSearchBar" hidden><svg class="i"><use href="#i-search"/></svg><input id="docSearch" type="search" placeholder="Search text in this document" autocomplete="off"></label>
+    <p class="hint" id="docSearchHint" hidden></p>
     <div id="pages" class="pages"></div>
     <p class="tip">Touch and hold a page to reorder</p>
   </div>
-  <footer class="toolbar">
-    <button class="tb" id="addPage"><svg class="i"><use href="#i-camera"/></svg><span>Add Page</span></button>
-    <button class="tb" id="ocrBtn"><svg class="i"><use href="#i-text"/></svg><span>Text</span></button>
-    <button class="tb" id="pdfBtn"><svg class="i"><use href="#i-share"/></svg><span>Share PDF</span></button>
+  <footer class="toolbar five">
+    <button class="tb" id="docAdd"><svg class="i"><use href="#i-plus"/></svg><span>Add</span></button>
+    <button class="tb" id="docShare"><svg class="i"><use href="#i-share"/></svg><span>Share</span></button>
+    <button class="tb" id="docEdit"><svg class="i"><use href="#i-pencil"/></svg><span>Edit</span></button>
+    <button class="tb" id="docFind"><svg class="i"><use href="#i-search"/></svg><span>Search</span></button>
+    <button class="tb" id="docPdf"><svg class="i"><use href="#i-pdf"/></svg><span>View PDF</span></button>
   </footer>
 </section>
 
-<!-- ============ Pushed: Page editor ============ -->
+<!-- ============ Pushed: Page view ============ -->
 <section id="page" class="view">
   <header class="nav solid"><div class="nav-l"><button class="nbtn back" id="pageBack"><svg class="i"><use href="#i-back"/></svg>Back</button></div>
     <div class="nav-t" id="pageTitle">Page</div><div class="nav-r"><button class="nbtn red" id="pageDelete" aria-label="Delete page"><svg class="i"><use href="#i-trash"/></svg></button></div></header>
-  <div class="pageview"><img id="pageImg" alt=""></div>
-  <div id="filters" class="filters"></div>
-  <footer class="toolbar">
-    <button class="tb" id="pageCrop"><svg class="i"><use href="#i-crop"/></svg><span>Crop</span></button>
-    <button class="tb" id="pageRotate"><svg class="i"><use href="#i-rotate"/></svg><span>Rotate</span></button>
-    <button class="tb" id="pageSign"><svg class="i"><use href="#i-sign"/></svg><span>Sign</span></button>
-    <button class="tb" id="pageWatermark"><svg class="i"><use href="#i-drop"/></svg><span>Watermark</span></button>
+  <div class="pageview" id="pageView"><img id="pageImg" alt=""><canvas id="adjCanvas" hidden></canvas></div>
+  <div class="adjust" id="adjust" hidden>
+    <div class="sliderrow"><span class="lbl">Brightness</span><input id="adjB" type="range" min="-60" max="60" value="0"><span class="val" id="adjBv">0</span></div>
+    <div class="sliderrow"><span class="lbl">Contrast</span><input id="adjC" type="range" min="-50" max="80" value="0"><span class="val" id="adjCv">0</span></div>
+    <div class="row2b"><button class="btn" id="adjCancel">Cancel</button><button class="btn" id="adjReset">Reset</button><button class="btn primary" id="adjApply">Apply</button></div>
+  </div>
+  <footer class="toolbar five" id="pageBar">
+    <button class="tb" id="pgEdit"><svg class="i"><use href="#i-pencil"/></svg><span>Edit</span></button>
+    <button class="tb" id="pgOcr"><svg class="i"><use href="#i-text"/></svg><span>OCR</span></button>
+    <button class="tb" id="pgSign"><svg class="i"><use href="#i-sign"/></svg><span>Sign</span></button>
+    <button class="tb" id="pgDownload"><svg class="i"><use href="#i-download"/></svg><span>Download</span></button>
+    <button class="tb" id="pgShare"><svg class="i"><use href="#i-share"/></svg><span>Share</span></button>
   </footer>
 </section>
 
-<!-- ============ Full-screen: Camera ============ -->
-<section id="camera" class="view dark full">
-  <video id="camVideo" playsinline muted autoplay></video>
-  <canvas id="camOverlay"></canvas>
-  <div class="flash" id="camFlash"></div>
-  <header class="camtop">
-    <button class="round glass" id="camClose" aria-label="Close"><svg class="i"><use href="#i-x"/></svg></button>
-    <div class="pill glass" id="camHint">Point at a document</div>
-    <button class="round glass on" id="camAuto" aria-label="Auto-capture"><svg class="i"><use href="#i-bolt"/></svg></button>
-  </header>
-  <footer class="cambot">
-    <button class="round glass big" id="camPhotos" aria-label="Choose from Photos"><svg class="i"><use href="#i-photos"/></svg></button>
-    <button class="shutter" id="camShutter" aria-label="Take photo"><span></span></button>
-    <button class="stack" id="camDone" aria-label="Done"><img id="camThumb" alt=""><b id="camCount">0</b><em>Done</em></button>
+<!-- ============ Full-screen: Filter review (after scanning) ============ -->
+<section id="review" class="view dark full">
+  <header class="nav dark"><div class="nav-l"><button class="nbtn txt" id="revBack">Back</button></div><div class="nav-t" id="revTitle">Filter</div>
+    <div class="nav-r"><button class="nbtn txt bold" id="revDone">Save</button></div></header>
+  <p class="banner" id="revBanner">Filter will be applied to all pages</p>
+  <div class="revwrap" id="revWrap"><img id="revImg" alt=""><div class="spin small" id="revSpin" hidden></div></div>
+  <div class="revnav"><button class="round glass" id="revPrev" aria-label="Previous page"><svg class="i"><use href="#i-back"/></svg></button><span id="revCount">1 / 1</span><button class="round glass flip" id="revNext" aria-label="Next page"><svg class="i"><use href="#i-back"/></svg></button></div>
+  <div id="revFilters" class="filters dark"></div>
+  <footer class="toolbar dark">
+    <button class="tb" id="revAdd"><svg class="i"><use href="#i-plus"/></svg><span>Add Page</span></button>
+    <button class="tb" id="revCrop"><svg class="i"><use href="#i-crop"/></svg><span>Re-Crop</span></button>
+    <button class="tb" id="revRotate"><svg class="i"><use href="#i-rotate"/></svg><span>Rotate</span></button>
+    <button class="tb" id="revDel"><svg class="i"><use href="#i-trash"/></svg><span>Delete</span></button>
   </footer>
 </section>
 
 <!-- ============ Full-screen: Crop ============ -->
 <section id="crop" class="view dark full">
   <header class="nav dark"><div class="nav-l"><button class="nbtn txt" id="cropCancel">Cancel</button></div><div class="nav-t" id="cropTitle">Adjust Corners</div>
-    <div class="nav-r"><button class="nbtn txt bold" id="cropDone">Done</button></div></header>
-  <div class="cropwrap"><canvas id="cropCanvas"></canvas></div>
+    <div class="nav-r"><button class="nbtn txt bold" id="cropDone">Next</button></div></header>
+  <div class="cropwrap" id="cropWrap"><canvas id="cropCanvas"></canvas><canvas id="loupe" width="240" height="240"></canvas></div>
   <p class="hint" id="cropHint">Drag the corners to the edges of the page</p>
   <footer class="toolbar dark">
+    <button class="tb" id="cropRetake"><svg class="i"><use href="#i-retake"/></svg><span>Retake</span></button>
     <button class="tb" id="cropRotate"><svg class="i"><use href="#i-rotate"/></svg><span>Rotate</span></button>
-    <button class="tb" id="cropReset"><svg class="i"><use href="#i-reset"/></svg><span>Whole Photo</span></button>
+    <button class="tb" id="cropAuto"><svg class="i"><use href="#i-wand"/></svg><span>Auto</span></button>
+    <button class="tb" id="cropReset"><svg class="i"><use href="#i-reset"/></svg><span>Full Page</span></button>
   </footer>
 </section>
 
@@ -253,6 +267,7 @@
 <input type="file" id="fileCam" accept="image/*" capture="environment" hidden>
 
 <script src="vendor/jspdf.umd.min.js" defer></script>
+<script src="vision.js" defer></script>
 <script src="app.js" defer></script>
 <script src="tools.js" defer></script>
 </body>
