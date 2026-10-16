@@ -1,21 +1,3 @@
-<!doctype html><meta charset="utf-8"><title>seg</title>
+<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' blob: data:; img-src 'self' blob: data:; media-src 'self' blob: mediastream:; style-src 'self' 'unsafe-inline'; font-src 'self'; frame-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'"><title>seg</title>
 <!-- Isolated context for MediaPipe: OpenCV.js in the main page defines a global `Module` that breaks MediaPipe's loader. -->
-<script type="module">
-import { FilesetResolver, ImageSegmenter } from './vendor/mediapipe/vision_bundle.mjs';
-let seg = null;
-window.segment = async (imageData) => {
-  if (!seg) {
-    const fs = await FilesetResolver.forVisionTasks(new URL('vendor/mediapipe/wasm', location.href).href);
-    seg = await ImageSegmenter.createFromOptions(fs, {
-      baseOptions: { modelAssetPath: new URL('vendor/mediapipe/selfie_segmenter.tflite', location.href).href, delegate: 'CPU' },
-      runningMode: 'IMAGE', outputCategoryMask: false, outputConfidenceMasks: true,
-    });
-  }
-  const res = seg.segment(imageData);
-  const m = res.confidenceMasks[0];
-  const out = { width: m.width, height: m.height, data: new Float32Array(m.getAsFloat32Array()) };
-  res.close();
-  return out;
-};
-window.segReady = true;
-</script>
+<script type="module" src="seg.js"></script>

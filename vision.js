@@ -609,6 +609,13 @@ const Vision = (() => {
     bleachPaper(cv, rgb, 225, 14);
     return rgb;
   }
+  /** Magic Colour 2: extra saturation for stamps, highlighter and coloured forms (paper stays white). */
+  function vivid(cv, rgb) {
+    const hsv = new cv.Mat(); cv.cvtColor(rgb, hsv, cv.COLOR_RGB2HSV);
+    const ch = new cv.MatVector(); cv.split(hsv, ch); const sat = ch.get(1);
+    cv.convertScaleAbs(sat, sat, 1.35, 0); cv.merge(ch, hsv); sat.delete(); ch.delete();
+    cv.cvtColor(hsv, rgb, cv.COLOR_HSV2RGB); hsv.delete();
+  }
   function filterWhite(cv, src) {
     const g0 = new cv.Mat(); cv.cvtColor(src, g0, cv.COLOR_RGBA2GRAY);
     const f = flatten(cv, g0, 1); g0.delete();
@@ -652,6 +659,7 @@ const Vision = (() => {
     const src = cv.imread(canvas); let out = null;
     try {
       if (name === 'magic') out = filterMagic(cv, src);
+      else if (name === 'magic2') { out = filterMagic(cv, src); punchInkColor(cv, out, 1.5); vivid(cv, out); }
       else if (name === 'white') out = filterWhite(cv, src);
       else if (name === 'bw') out = filterBw(cv, src);
       else if (name === 'gray') out = filterGray(cv, src);

@@ -32,6 +32,13 @@ const OPS = {
     const o = Vision.filter(cv, c, name, bc);
     return { blob: await jpeg(o, quality || 0.92), w: o.width, h: o.height };
   },
+  // live camera: small frame (~500px long side) → corners; the frame canvas is reused between calls
+  async detectLive({ src }) {
+    let c = self._liveC; if (!c || c.width !== src.width || c.height !== src.height) c = self._liveC = new OffscreenCanvas(src.width, src.height);
+    c.getContext('2d').drawImage(src, 0, 0); src.close && src.close();
+    const t = performance.now(), d = Vision.detect(cv, c);
+    return d ? { q: d.q, votes: d.votes, ms: performance.now() - t } : { q: null, ms: performance.now() - t };
+  },
   ping() { return true; }
 };
 async function handle(m) {

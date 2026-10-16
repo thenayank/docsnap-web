@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' blob: data:; img-src 'self' blob: data:; media-src 'self' blob: mediastream:; style-src 'self' 'unsafe-inline'; font-src 'self'; frame-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
 <title>DocSnap</title>
 <meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)">
@@ -72,7 +73,7 @@
 <div id="app">
 <!-- ============ TAB: Documents ============ -->
 <section id="home" class="view tabview active" data-title="Documents">
-  <header class="nav"><div class="nav-l"></div><div class="nav-t">Documents</div>
+  <header class="nav"><div class="nav-l"><button class="nbtn txt" id="homeSel">Select</button></div><div class="nav-t" id="homeNavT">Documents</div>
     <div class="nav-r"><button class="nbtn" id="viewToggle" aria-label="Change layout"></button></div></header>
   <div class="scroll">
     <h1 class="large">Documents</h1>
@@ -80,6 +81,11 @@
     <div id="folders" class="chips"></div>
     <div id="docList"></div>
   </div>
+  <footer class="toolbar selt" id="homeSelBar" hidden>
+    <button class="tb" id="hsShare" disabled><svg class="i"><use href="#i-share"/></svg><span>Share</span></button>
+    <button class="tb" id="hsMerge" disabled><svg class="i"><use href="#i-merge"/></svg><span>Merge</span></button>
+    <button class="tb danger" id="hsDelete" disabled><svg class="i"><use href="#i-trash"/></svg><span>Delete</span></button>
+  </footer>
 </section>
 
 <!-- ============ TAB: Tools ============ -->
@@ -125,7 +131,7 @@
       <button class="cell danger" id="setWipe"><span class="ic"><svg class="i"><use href="#i-trash"/></svg></span><span class="ct"><b>Delete All Documents</b></span></button>
     </div>
     <p class="foot"><svg class="i"><use href="#i-shield"/></svg> DocSnap keeps your documents only on this device. Add it to your Home Screen from Safari's Share menu to use it like an app, even offline.</p>
-    <p class="foot small">DocSnap 3.2</p>
+    <p class="foot small">DocSnap 3.3</p>
   </div>
 </section>
 
@@ -139,7 +145,7 @@
 <!-- ============ Pushed: Document ============ -->
 <section id="doc" class="view">
   <header class="nav"><div class="nav-l"><button class="nbtn back" id="docBack"><svg class="i"><use href="#i-back"/></svg>Documents</button></div>
-    <div class="nav-t"></div><div class="nav-r"><button class="nbtn" id="docMenu" aria-label="More"><svg class="i"><use href="#i-more"/></svg></button></div></header>
+    <div class="nav-t"></div><div class="nav-r"><button class="nbtn txt" id="docSel">Select</button><button class="nbtn" id="docMenu" aria-label="More"><svg class="i"><use href="#i-more"/></svg></button></div></header>
   <div class="scroll">
     <button class="doctitle" id="docTitle"></button>
     <p class="renamehint">Tap to rename</p>
@@ -155,6 +161,11 @@
     <button class="tb" id="docEdit"><svg class="i"><use href="#i-pencil"/></svg><span>Edit</span></button>
     <button class="tb" id="docFind"><svg class="i"><use href="#i-search"/></svg><span>Search</span></button>
     <button class="tb" id="docPdf"><svg class="i"><use href="#i-pdf"/></svg><span>View PDF</span></button>
+  </footer>
+  <footer class="toolbar selt" id="docSelBar" hidden>
+    <button class="tb" id="dsShare" disabled><svg class="i"><use href="#i-share"/></svg><span>Share</span></button>
+    <button class="tb" id="dsCopy" disabled><svg class="i"><use href="#i-merge"/></svg><span>New Document</span></button>
+    <button class="tb danger" id="dsDelete" disabled><svg class="i"><use href="#i-trash"/></svg><span>Delete</span></button>
   </footer>
 </section>
 
@@ -182,14 +193,51 @@
   <header class="nav solid"><div class="nav-l"><button class="nbtn back" id="pdfvBack"><svg class="i"><use href="#i-back"/></svg>Back</button></div>
     <div class="nav-t" id="pdfvTitle">PDF</div><div class="nav-r"><button class="nbtn" id="pdfvShare" aria-label="Share PDF"><svg class="i"><use href="#i-share"/></svg></button></div></header>
   <div class="scroll pdfscroll"><p class="pdfinfo" id="pdfvInfo"></p><div id="pdfvPages" class="pdfpages"></div></div>
-  <footer class="cta"><button class="btn primary" onclick="document.getElementById('pdfvShare').click()">Share PDF</button></footer>
+  <footer class="cta"><button class="btn primary" id="pdfvShare2">Share PDF</button></footer>
+</section>
+
+<!-- ============ Full-screen: Live camera (3.3) ============ -->
+<section id="cam" class="view dark full cam">
+  <div class="camstage" id="camStage">
+    <video id="camVideo" playsinline muted autoplay></video>
+    <canvas id="camOverlay" aria-hidden="true"></canvas>
+    <div class="camgrid" id="camGrid" hidden aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+    <div class="camflash" id="camFlash"></div>
+  </div>
+  <header class="camtop">
+    <button class="round glass" id="camClose" aria-label="Close camera"><svg class="i"><use href="#i-x"/></svg></button>
+    <div class="campill glass" role="group" aria-label="Camera options">
+      <button id="camAuto" class="on" aria-pressed="true">Auto</button><span class="sep"></span>
+      <button id="camHD" aria-pressed="false">HD</button><span class="sep"></span>
+      <button id="camGridBtn" aria-label="Grid lines" aria-pressed="false"><svg class="i"><use href="#i-grid"/></svg></button>
+    </div>
+    <button class="round glass" id="camTorch" aria-label="Flash" aria-pressed="false" hidden><svg class="i"><use href="#i-bolt"/></svg></button>
+    <span class="round ghost" id="camTorchGap" aria-hidden="true"></span>
+  </header>
+  <p class="campillmsg" id="camMsg" role="status">Looking for page…</p>
+  <div class="camperm" id="camPerm" hidden>
+    <svg class="i big"><use href="#i-camera"/></svg>
+    <h3 id="camPermT">Camera is off</h3>
+    <p id="camPermM">Allow camera access for DocSnap in Settings › Safari › Camera, or use the iPhone camera instead.</p>
+    <button class="btn primary" id="camNative"><svg class="i"><use href="#i-camera"/></svg>Use iPhone Camera</button>
+    <button class="btn" id="camRetry">Try Again</button>
+  </div>
+  <footer class="cambar">
+    <div class="traywrap">
+      <button class="tray glass" id="camTray" aria-label="Import from Photos"><svg class="i"><use href="#i-photos"/></svg></button>
+      <button class="traydel" id="camTrayDel" aria-label="Delete last page" hidden><svg class="i"><use href="#i-x"/></svg></button>
+    </div>
+    <button class="shutter cs" id="camShutter" aria-label="Take photo">
+      <svg class="ring" viewBox="0 0 84 84" aria-hidden="true"><circle cx="42" cy="42" r="39"/></svg><span></span></button>
+    <button class="camdone" id="camDone" disabled>Done<b id="camBadge" hidden>0</b></button>
+  </footer>
 </section>
 
 <!-- ============ Full-screen: Batch scan (capture many → review all crops) ============ -->
 <section id="batch" class="view dark full">
   <header class="nav dark"><div class="nav-l"><button class="nbtn txt" id="batCancel">Cancel</button></div><div class="nav-t" id="batTitle">Scan</div>
     <div class="nav-r"><button class="nbtn txt bold" id="batNext">Next</button></div></header>
-  <p class="banner" id="batBanner">Tap a page to adjust its crop · hold to reorder</p>
+  <p class="banner" id="batBanner" hidden>Tap a page to adjust its crop · hold to reorder</p>
   <div class="batgrid scroll" id="batGrid"></div>
   <footer class="batbar">
     <button class="tb" id="batPhotos"><svg class="i"><use href="#i-photos"/></svg><span>Photos</span></button>
@@ -202,7 +250,8 @@
 <section id="review" class="view dark full">
   <header class="nav dark"><div class="nav-l"><button class="nbtn back" id="revBack" aria-label="Back to pages"><svg class="i"><use href="#i-back"/></svg>Pages</button></div><div class="nav-t" id="revTitle">Filter</div>
     <div class="nav-r"><button class="nbtn txt bold" id="revDone">Save</button></div></header>
-  <p class="banner" id="revBanner">Filter will be applied to all pages</p>
+  <div class="revscope" id="revScope" role="group" aria-label="Apply filter to"><button data-s="all" class="on">All Pages</button><button data-s="one">This Page</button></div>
+  <p class="revnote" id="revNote">Filter will be applied to all pages (can be changed later)</p>
   <div class="revwrap" id="revWrap"><img id="revImg" alt=""><div class="spin small" id="revSpin" hidden></div></div>
   <div class="revnav"><button class="round glass" id="revPrev" aria-label="Previous page"><svg class="i"><use href="#i-back"/></svg></button><span id="revCount">1 / 1</span><button class="round glass flip" id="revNext" aria-label="Next page"><svg class="i"><use href="#i-back"/></svg></button></div>
   <div id="revFilters" class="filters dark"></div>
@@ -210,7 +259,7 @@
     <button class="tb" id="revAdd"><svg class="i"><use href="#i-plus"/></svg><span>Add Page</span></button>
     <button class="tb" id="revCrop"><svg class="i"><use href="#i-crop"/></svg><span>Re-Crop</span></button>
     <button class="tb" id="revRotate"><svg class="i"><use href="#i-rotate"/></svg><span>Rotate</span></button>
-    <button class="tb" id="revDel"><svg class="i"><use href="#i-trash"/></svg><span>Delete</span></button>
+    <button class="tb danger" id="revDel"><svg class="i"><use href="#i-trash"/></svg><span>Delete</span></button>
   </footer>
 </section>
 
@@ -224,7 +273,7 @@
     <button class="tb" id="cropRetake"><svg class="i"><use href="#i-retake"/></svg><span>Retake</span></button>
     <button class="tb" id="cropRotate"><svg class="i"><use href="#i-rotate"/></svg><span>Rotate</span></button>
     <button class="tb" id="cropAuto"><svg class="i"><use href="#i-wand"/></svg><span>Auto</span></button>
-    <button class="tb" id="cropReset"><svg class="i"><use href="#i-reset"/></svg><span>Full Page</span></button>
+    <button class="tb" id="cropReset"><svg class="i"><use href="#i-reset"/></svg><span>No Crop</span></button>
   </footer>
 </section>
 
@@ -289,6 +338,7 @@
 
 <script src="vision.js" defer></script>
 <script src="app.js" defer></script>
+<script src="camera.js" defer></script>
 <script src="tools.js" defer></script>
 </body>
 </html>
