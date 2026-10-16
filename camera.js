@@ -10,7 +10,7 @@ const Detector = {
     const r = await VW.call('detectLive', { src: bmp }, [bmp], -1);
     return r && r.q ? { q: r.q, conf: Math.min(1, (r.votes || 1) / 4), ms: r.ms } : null;
   },
-  async still(canvas) { const d = await vDetect(canvas); return d ? { q: d.q, conf: Math.min(1, (d.votes || 1) / 4) } : null; },
+  async still(canvas) { const d = await vDetectBest(canvas); return d ? { q: d.q, conf: Math.min(1, (d.votes || 1) / 4) } : null; },
   detect(canvas) { return this.still(canvas); }
 };
 

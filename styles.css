@@ -498,3 +498,4 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;margin-top:-12px
 .toolbar.dark .tb.danger::before{border-left-color:rgba(255,255,255,.18)}
 .tb.danger:disabled{opacity:.35}
 .sheet .cell + .cell::before{left:52px}
+.bt .stage{position:absolute;left:0;right:0;top:calc(50% + 22px);text-align:center;font-size:12px;font-weight:600;color:rgba(255,255,255,.85);text-shadow:0 1px 3px rgba(0,0,0,.8)}

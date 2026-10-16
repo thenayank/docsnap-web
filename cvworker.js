@@ -3,7 +3,7 @@
 self.HTMLImageElement = self.HTMLImageElement || function () {};
 self.HTMLCanvasElement = self.HTMLCanvasElement || OffscreenCanvas;
 self.document = self.document || { createElement: () => new OffscreenCanvas(1, 1), getElementById: () => null };
-importScripts('vendor/opencv.js', 'vision.js');
+importScripts('vendor/opencv.js', 'vision.js', 'detector-v2.js');
 let ready = false; const queue = [];
 (function wait() {
   try { if (self.cv && self.cv.Mat) { new cv.Mat().delete(); ready = true; queue.splice(0).forEach(handle); postMessage({ ready: true }); return; } } catch {}
@@ -38,6 +38,11 @@ const OPS = {
     c.getContext('2d').drawImage(src, 0, 0); src.close && src.close();
     const t = performance.now(), d = Vision.detect(cv, c);
     return d ? { q: d.q, votes: d.votes, ms: performance.now() - t } : { q: null, ms: performance.now() - t };
+  },
+  // detector-v2 corner refinement on a v1 result (after capture / import)
+  async refine({ src, q, votes }) {
+    const c = await toCanvas(src); const r = DetectorV2.refineFrom(c, { q, votes });
+    return r && r.corners && r.corners.every((p) => Number.isFinite(p[0]) && Number.isFinite(p[1])) ? { q: r.corners.map((p) => ({ x: p[0], y: p[1] })), conf: r.confidence } : null;
   },
   ping() { return true; }
 };

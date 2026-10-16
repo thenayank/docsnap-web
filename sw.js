@@ -1,5 +1,5 @@
 const VERSION = 'docsnap-v9';
-const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'vision.js', 'cvworker.js', 'manifest.webmanifest',
+const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'vision.js', 'cvworker.js', 'detector-v2.js', 'manifest.webmanifest',
   'tools.js', 'camera.js', 'seg.html', 'seg.js', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png'];
 // Heavy engines are fetched in the background after install so they never slow the first visit.
 const HEAVY = ['vendor/jspdf.umd.min.js', 'vendor/pdf-lib.min.js', 'vendor/pdf.min.js', 'vendor/pdf.worker.min.js', 'vendor/opencv.js', 'vendor/tesseract.min.js',

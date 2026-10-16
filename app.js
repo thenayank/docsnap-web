@@ -913,6 +913,22 @@ async function vDetect(canvas) {
     return d && { ...d, q: d.q.map((p) => ({ x: p.x / k, y: p.y / k })) };
   } catch (e) { if (!isFallback(e)) throw e; const { cv } = await loadCv(); return Vision.detect(cv, canvas); }
 }
+/** detector-v2 refinement (worker). Falls back to the v1 result on error / null / implausible output. */
+async function vRefine(canvas, det) {
+  if (!det) return det;
+  try {
+    const { c, k } = Vision.scaled(canvas, 2000);
+    const bmp = await createImageBitmap(c); if (c !== canvas) Vision.free(c);
+    const r = await VW.call('refine', { src: bmp, q: det.q.map((p) => ({ x: p.x * k, y: p.y * k })), votes: det.votes });
+    bmp.close && bmp.close();
+    if (!r) return { ...det, v: 1 };
+    const q = r.q.map((p) => ({ x: p.x / k, y: p.y / k })), diag = Math.hypot(canvas.width, canvas.height);
+    if (Math.max(...q.map((p, i) => Math.hypot(p.x - det.q[i].x, p.y - det.q[i].y))) > 0.05 * diag) return { ...det, v: 1 }; // refinement jumped: keep v1
+    return { ...det, q, conf: r.conf, v: 2 };
+  } catch (e) { return { ...det, v: 1 }; }
+}
+/** v1 detect + v2 refine: used after capture / import and by the crop editor. */
+async function vDetectBest(canvas) { return vRefine(canvas, await vDetect(canvas)); }
 /** → { orig: Blob, raw?: Blob } */
 async function vWarp(canvas, q, rawQ) {
   try {
@@ -965,7 +981,7 @@ async function photoToCrop(file) {
     const raw = await Vision.decode(file, 3000);
     busy();
     // detection runs in the worker while the crop screen is already visible
-    const det = vDetect(raw).catch(() => null);
+    const det = vDetectBest(raw).catch(() => null);
     return { raw, q: inset(raw), found: null, det };
   } catch (e) { busy(); toast('Couldn’t open that photo', 'err'); return null; }
 }
@@ -1042,6 +1058,7 @@ async function processBatchPage(pg) {
   try {
     raw = await Vision.decode(pg.file, 3000); const t1 = performance.now();
     let det = null; try { det = await vDetect(raw); } catch {}
+    if (det) { pg.stage = 'refine'; updateBatchTile(pg); det = await vRefine(raw, det); pg.v = det.v; }
     const t2 = performance.now(), q = det ? det.q : fullCorners(raw);
     const w = await vWarp(raw, Vision.order(q), 0.88);
     pg.t = { decode: Math.round(t1 - t0), detect: Math.round(t2 - t1), warp: Math.round(performance.now() - t2) };
@@ -1062,7 +1079,7 @@ function batchTile(pg, i) {
   const t = el('div', { class: 'bt' + (pg.status === 'proc' ? ' proc' : ''), 'data-id': pg.id, role: 'button', 'aria-label': `Page ${i + 1}, adjust crop` },
     img, el('span', { class: 'num' }, String(i + 1)),
     el('button', { class: 'del', 'aria-label': `Delete page ${i + 1}`, onclick: (e) => { e.stopPropagation(); batchDelete(pg); } }, el('span', {}, icon('x'))));
-  if (pg.status === 'proc') t.append(el('div', { class: 'spin small' }));
+  if (pg.status === 'proc') t.append(el('div', { class: 'spin small' }), pg.stage === 'refine' ? el('span', { class: 'stage' }, 'Refining edges…') : null);
   else if (pg.status === 'err') t.append(el('span', { class: 'warn' }, 'Couldn’t read'));
   else if (!pg.found) t.append(el('span', { class: 'warn' }, 'Page not found'));
   if (pg.override) t.append(el('span', { class: 'ov' }, FILTERS.find((f) => f[0] === pg.filter)?.[1] || ''));
@@ -1285,7 +1302,7 @@ $('cropCanvas').addEventListener('pointermove', (e) => {
 $('cropReset').onclick = () => { crop.corners = fullCorners(crop.canvas); crop.touched = true; drawCrop(); $('cropHint').textContent = 'No crop · the whole photo is used'; haptic(); };
 $('cropAuto').onclick = async () => {
   $('crop').classList.add('finding'); $('cropHint').textContent = 'Finding edges…';
-  try { const det = await vDetect(crop.canvas); $('crop').classList.remove('finding'); $('cropHint').textContent = 'Drag the corners or edges to fine-tune'; if (det) { $('cropAuto').classList.remove('hl'); crop.corners = det.q; drawCrop(); toast('Edges found'); } else toast('Page not found · drag the corners or edges', 'err'); }
+  try { const det = await vDetectBest(crop.canvas); $('crop').classList.remove('finding'); $('cropHint').textContent = 'Drag the corners or edges to fine-tune'; if (det) { $('cropAuto').classList.remove('hl'); crop.corners = det.q; drawCrop(); toast('Edges found'); } else toast('Page not found · drag the corners or edges', 'err'); }
   catch (e) { $('crop').classList.remove('finding'); toast(e.message, 'err'); }
 };
 $('cropRotate').onclick = () => {
