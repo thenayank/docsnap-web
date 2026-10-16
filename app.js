@@ -913,17 +913,16 @@ async function vDetect(canvas) {
     return d && { ...d, q: d.q.map((p) => ({ x: p.x / k, y: p.y / k })) };
   } catch (e) { if (!isFallback(e)) throw e; const { cv } = await loadCv(); return Vision.detect(cv, canvas); }
 }
-/** detector-v2 refinement (worker). Falls back to the v1 result on error / null / implausible output. */
+/** detector-v2 refinement (worker). v2 corners are used directly; v1 is kept only if v2 errors, times out (>3 s) or returns null. */
 async function vRefine(canvas, det) {
   if (!det) return det;
   try {
     const { c, k } = Vision.scaled(canvas, 2000);
     const bmp = await createImageBitmap(c); if (c !== canvas) Vision.free(c);
-    const r = await VW.call('refine', { src: bmp, q: det.q.map((p) => ({ x: p.x * k, y: p.y * k })), votes: det.votes });
+    const r = await Promise.race([VW.call('refine', { src: bmp, q: det.q.map((p) => ({ x: p.x * k, y: p.y * k })), votes: det.votes }), sleep(3000).then(() => { throw new Error('refine timeout'); })]);
     bmp.close && bmp.close();
     if (!r) return { ...det, v: 1 };
-    const q = r.q.map((p) => ({ x: p.x / k, y: p.y / k })), diag = Math.hypot(canvas.width, canvas.height);
-    if (Math.max(...q.map((p, i) => Math.hypot(p.x - det.q[i].x, p.y - det.q[i].y))) > 0.05 * diag) return { ...det, v: 1 }; // refinement jumped: keep v1
+    const q = r.q.map((p) => ({ x: p.x / k, y: p.y / k }));
     return { ...det, q, conf: r.conf, v: 2 };
   } catch (e) { return { ...det, v: 1 }; }
 }
