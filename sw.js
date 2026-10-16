@@ -1,12 +1,15 @@
-const VERSION = 'docsnap-v5';
-const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'vision.js', 'manifest.webmanifest',
-  'vendor/jspdf.umd.min.js', 'tools.js', 'seg.html', 'vendor/pdf-lib.min.js', 'vendor/pdf.min.js', 'vendor/pdf.worker.min.js', 'vendor/opencv.js', 'vendor/tesseract.min.js', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png'];
+const VERSION = 'docsnap-v6';
+const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'vision.js', 'cvworker.js', 'manifest.webmanifest',
+  'tools.js', 'seg.html', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png'];
+// Heavy engines are fetched in the background after install so they never slow the first visit.
+const HEAVY = ['vendor/jspdf.umd.min.js', 'vendor/pdf-lib.min.js', 'vendor/pdf.min.js', 'vendor/pdf.worker.min.js', 'vendor/opencv.js', 'vendor/tesseract.min.js'];
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(VERSION).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
 });
 self.addEventListener('activate', (e) => {
   e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== VERSION).map((k) => caches.delete(k))))
-    .then(() => self.clients.claim()));
+    .then(() => self.clients.claim())
+    .then(() => { setTimeout(() => caches.open(VERSION).then(async (c) => { for (const u of HEAVY) { if (!(await c.match(u))) { try { await c.add(u); } catch {} } } }), 8000); }));
 });
 // App shell: network-first (fresh updates), fallback to cache.
 // Heavy libs (OpenCV, Tesseract core/worker/language data from CDN): cache-first after first use.

@@ -35,19 +35,28 @@ function filePicker(body, { accept = 'application/pdf', multiple = true, label =
   const drop = el('button', { class: 'drop', onclick: async () => {
     const f = await pickFiles(accept, multiple);
     if (!f.length) return;
-    st.files = multiple ? [...st.files, ...f] : f.slice(0, 1); render();
+    st.files = multiple ? [...st.files, ...f] : f.slice(0, 1); render(); st.refresh && st.refresh();
   } });
   const render = () => {
     drop.replaceChildren(icon(accept.startsWith('image') ? 'photos' : 'doc'), el('span', { textContent: st.files.length ? (multiple ? 'Add More' : 'Choose Another') : label }), el('small', { textContent: hint }));
     ul.replaceChildren(...st.files.map((f, i) => el('li', {},
       el('span', { class: 'ic' }, icon(f.type.startsWith('image') ? 'photo' : 'doc')),
-      el('span', {}, el('b', { textContent: f.name }), el('small', { textContent: fmtSize(f.size) })),
+      el('span', {}, el('b', { textContent: f.name }), el('small', { textContent: fmtSize(f.size) + (f._pages ? ` · ${f._pages} page${f._pages > 1 ? 's' : ''}` : '') })),
       multiple && st.files.length > 1 && i > 0 ? el('button', { 'aria-label': 'Move up', onclick: () => { [st.files[i - 1], st.files[i]] = [st.files[i], st.files[i - 1]]; render(); } }, icon('back', '')) : null,
       el('button', { 'aria-label': 'Remove', onclick: () => { st.files.splice(i, 1); render(); } }, icon('x')))));
     ul.querySelectorAll('button[aria-label="Move up"] svg').forEach((s) => (s.style.transform = 'rotate(90deg)'));
     onChange(st.files);
   };
   body.append(drop, ul); render();
+  if (accept === 'application/pdf') loadPdfLib().catch(() => {}); // prefetch so the action is instant
+  // show page counts for PDFs once known
+  const origRender = render;
+  st.refresh = async () => {
+    for (const f of st.files) if (f.type === 'application/pdf' && f._pages == null) {
+      try { await loadPdfLib(); const d = await PDFLib.PDFDocument.load(await f.arrayBuffer(), { ignoreEncryption: true, updateMetadata: false }); f._pages = d.getPageCount(); } catch { f._pages = 0; }
+    }
+    origRender();
+  };
   return st;
 }
 function parseRanges(s, n) {
@@ -83,7 +92,7 @@ const TOOLS = {
       for (const f of st.files) { const src = await loadPdf(f); (await out.copyPages(src, src.getPageIndices())).forEach((p) => out.addPage(p)); }
       const bytes = await out.save(); busy(); await deliver([pdfFile(bytes, 'Combined.pdf')]);
     }), true, true);
-    const st = filePicker(body, { label: 'Choose PDFs', onChange: (f) => (go.disabled = f.length < 2) });
+    const st = filePicker(body, { label: 'Choose PDFs', hint: 'Pick several at once from Files', onChange: (f) => { go.disabled = f.length < 2; const n = f.reduce((a, x) => a + (x._pages || 0), 0); go.textContent = f.length < 2 ? (f.length ? 'Add One More PDF' : 'Combine') : `Combine ${f.length} PDFs${n ? ` · ${n} pages` : ''}`; } });
     cta.append(go);
   }),
 

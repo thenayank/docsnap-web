@@ -147,7 +147,7 @@
     <label class="search" id="docSearchBar" hidden><svg class="i"><use href="#i-search"/></svg><input id="docSearch" type="search" placeholder="Search text in this document" autocomplete="off"></label>
     <p class="hint" id="docSearchHint" hidden></p>
     <div id="pages" class="pages"></div>
-    <p class="tip">Touch and hold a page to reorder</p>
+    <p class="tip" hidden>Touch and hold a page to reorder</p>
   </div>
   <footer class="toolbar five">
     <button class="tb" id="docAdd"><svg class="i"><use href="#i-plus"/></svg><span>Add</span></button>
@@ -170,16 +170,24 @@
   </div>
   <footer class="toolbar five" id="pageBar">
     <button class="tb" id="pgEdit"><svg class="i"><use href="#i-pencil"/></svg><span>Edit</span></button>
-    <button class="tb" id="pgOcr"><svg class="i"><use href="#i-text"/></svg><span>OCR</span></button>
+    <button class="tb" id="pgOcr"><svg class="i"><use href="#i-text"/></svg><span>Text</span></button>
     <button class="tb" id="pgSign"><svg class="i"><use href="#i-sign"/></svg><span>Sign</span></button>
     <button class="tb" id="pgDownload"><svg class="i"><use href="#i-download"/></svg><span>Download</span></button>
     <button class="tb" id="pgShare"><svg class="i"><use href="#i-share"/></svg><span>Share</span></button>
   </footer>
 </section>
 
+<!-- ============ Pushed: In-app PDF viewer ============ -->
+<section id="pdfv" class="view">
+  <header class="nav solid"><div class="nav-l"><button class="nbtn back" id="pdfvBack"><svg class="i"><use href="#i-back"/></svg>Back</button></div>
+    <div class="nav-t" id="pdfvTitle">PDF</div><div class="nav-r"><button class="nbtn" id="pdfvShare" aria-label="Share PDF"><svg class="i"><use href="#i-share"/></svg></button></div></header>
+  <div class="scroll pdfscroll"><p class="pdfinfo" id="pdfvInfo"></p><div id="pdfvPages" class="pdfpages"></div></div>
+  <footer class="cta"><button class="btn primary" onclick="document.getElementById('pdfvShare').click()">Share PDF</button></footer>
+</section>
+
 <!-- ============ Full-screen: Filter review (after scanning) ============ -->
 <section id="review" class="view dark full">
-  <header class="nav dark"><div class="nav-l"><button class="nbtn txt" id="revBack">Back</button></div><div class="nav-t" id="revTitle">Filter</div>
+  <header class="nav dark"><div class="nav-l"><button class="nbtn back" id="revBack" aria-label="Back to crop"><svg class="i"><use href="#i-back"/></svg>Crop</button></div><div class="nav-t" id="revTitle">Filter</div>
     <div class="nav-r"><button class="nbtn txt bold" id="revDone">Save</button></div></header>
   <p class="banner" id="revBanner">Filter will be applied to all pages</p>
   <div class="revwrap" id="revWrap"><img id="revImg" alt=""><div class="spin small" id="revSpin" hidden></div></div>
@@ -266,7 +274,6 @@
 <div id="toast" class="toast"></div>
 <input type="file" id="fileCam" accept="image/*" capture="environment" hidden>
 
-<script src="vendor/jspdf.umd.min.js" defer></script>
 <script src="vision.js" defer></script>
 <script src="app.js" defer></script>
 <script src="tools.js" defer></script>

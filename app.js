@@ -42,7 +42,13 @@ function show(id, mode = 'push') {
   const clear = (v) => v.classList.remove('in-push', 'out-push', 'in-pop', 'out-pop', 'in-up', 'out-down', 'in-fade');
   clear(from); clear(to);
   if (mode === 'push' || mode === 'up') navStack.push(curView);
+  else if (mode === 'pop' || mode === 'down') navStack.pop();
+  if (TABS.includes(id)) navStack.length = 0;
+  // canonical parents, so Back always lands somewhere sensible no matter how the view was reached
+  if (id === 'doc') navStack.splice(0, navStack.length, 'home');
+  if (id === 'tool' || id === 'passport') navStack.splice(0, navStack.length, typeof toolBack !== 'undefined' ? toolBack : 'tools');
   from.classList.remove('active'); to.classList.add('active');
+  from.inert = true; to.inert = false;
   const anim = { push: ['out-push', 'in-push'], pop: ['out-pop', 'in-pop'], up: [null, 'in-up'], down: ['out-down', null], tab: [null, 'in-fade'] }[mode];
   if (anim) {
     if (anim[0]) { from.classList.add(anim[0]); setTimeout(() => clear(from), 460); }
@@ -51,8 +57,41 @@ function show(id, mode = 'push') {
   curView = id;
   $('tabbar').classList.toggle('hide', !TABS.includes(id));
   document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('on', t.dataset.tab === id));
+  syncHistory();
 }
+// ---- History integration: iOS edge-swipe / browser Back = in-app Back; Back closes sheets & alerts first ----
+let histDepth = 0, pendingGo = false, goT = 0;
+// One traversal at a time: history.go() is async, so pushes wait until it lands (otherwise entries drift).
+function syncHistory() {
+  if (pendingGo) return;
+  const want = navStack.length;
+  if (histDepth > want) {
+    pendingGo = true; clearTimeout(goT);
+    goT = setTimeout(() => { pendingGo = false; syncHistory(); }, 1000);
+    history.go(want - histDepth); return;
+  }
+  while (histDepth < want) history.pushState({ d: ++histDepth }, '');
+}
+if (!history.state || history.state.d !== 0) history.replaceState({ d: 0 }, '');
+const VIEW_BACK = { doc: 'docBack', page: 'pageBack', ocr: 'ocrBack', crop: 'cropCancel', sigpad: 'sigBack', place: 'placeBack', passport: 'ppBack', pdfv: 'pdfvBack' };
+function appBack() {
+  if (curView === 'review') return reviewLeave();
+  if (curView === 'page' && !$('adjust').hidden) return $('adjCancel').click();
+  if (curView === 'tool') return $('tool').querySelector('[data-back]').click();
+  const b = VIEW_BACK[curView] && $(VIEW_BACK[curView]); if (b) b.click();
+}
+window.addEventListener('popstate', (e) => {
+  histDepth = (e.state && e.state.d) || 0;
+  if (pendingGo) { pendingGo = false; clearTimeout(goT); syncHistory(); return; }
+  if ($('alert').classList.contains('on')) { const bs = $('alert').querySelectorAll('.aa button'); (bs[0] || {}).click?.(); setTimeout(syncHistory, 0); return; }
+  if (sheetResolve) { closeSheet(null); setTimeout(syncHistory, 0); return; }
+  if (!$('busy').hidden) { setTimeout(syncHistory, 0); return; }
+  appBack();
+  setTimeout(syncHistory, 900); // if Back was declined (e.g. "Keep Scanning"), restore the entry
+});
+let tabT = 0;
 function goTab(id) {
+  const now = Date.now(); if (now - tabT < 250 && curView === id) return; tabT = now; // rapid-tap guard
   navStack.length = 0;
   if (id === 'home') return renderHome('tab');
   if (id === 'settings') renderSettings();
@@ -94,13 +133,21 @@ function closeSheet(v = null) {
   const r = sheetResolve; sheetResolve = null; if (r) r(v);
 }
 $('scrim').addEventListener('click', () => { if (sheetResolve) closeSheet(null); });
-// drag-to-dismiss on the grabber area
+// drag-to-dismiss from the top strip (grabber / title). Touch events are used on touch devices because
+// pointer events get cancelled as soon as the browser starts a scroll gesture.
 (() => {
   const s = $('sheet'); let y0 = null, dy = 0;
-  s.addEventListener('pointerdown', (e) => { if (e.target.closest('.grabber,h3,.sub') && s.scrollTop === 0) { y0 = e.clientY; dy = 0; s.classList.add('drag'); s.setPointerCapture(e.pointerId); } });
-  s.addEventListener('pointermove', (e) => { if (y0 == null) return; dy = Math.max(0, e.clientY - y0); s.style.transform = `translateY(${dy}px)`; });
+  const canStart = (t, y) => (t.closest('.grabber,h3,.sub') || y - s.getBoundingClientRect().top < 48) && !t.closest('input,textarea') && s.scrollTop === 0;
+  const begin = (y) => { y0 = y; dy = 0; s.classList.add('drag'); };
+  const move = (y) => { dy = Math.max(0, y - y0); s.style.transform = `translateY(${dy}px)`; };
   const end = () => { if (y0 == null) return; s.classList.remove('drag'); y0 = null; if (dy > 90) closeSheet(null); else s.style.transform = ''; };
-  s.addEventListener('pointerup', end); s.addEventListener('pointercancel', end);
+  s.addEventListener('touchstart', (e) => { if (e.touches.length === 1 && canStart(e.target, e.touches[0].clientY)) begin(e.touches[0].clientY); }, { passive: true });
+  s.addEventListener('touchmove', (e) => { if (y0 == null) return; e.preventDefault(); move(e.touches[0].clientY); }, { passive: false });
+  s.addEventListener('touchend', end); s.addEventListener('touchcancel', end);
+  s.addEventListener('pointerdown', (e) => { if (e.pointerType === 'touch') return; if (canStart(e.target, e.clientY)) { begin(e.clientY); s.setPointerCapture(e.pointerId); } });
+  s.addEventListener('pointermove', (e) => { if (e.pointerType === 'touch' || y0 == null) return; move(e.clientY); });
+  s.addEventListener('pointerup', (e) => { if (e.pointerType !== 'touch') end(); });
+  s.addEventListener('pointercancel', (e) => { if (e.pointerType !== 'touch') end(); });
 })();
 /** Action sheet. items: [{label, value, icon, danger, checked}] */
 function menu(title, items, sub) {
@@ -235,8 +282,13 @@ let objectUrls = [];
 function revokeUrls() { objectUrls.forEach(URL.revokeObjectURL); objectUrls = []; }
 function url(blob) { const u = URL.createObjectURL(blob); objectUrls.push(u); return u; }
 const pad = (n) => String(n).padStart(2, '0');
-function stamp() { const d = new Date(); return `${d.getDate()} ${d.toLocaleString('en', { month: 'short' })}, ${d.toLocaleTimeString('en', { hour: 'numeric', minute: '2-digit' })}`; }
-const defaultName = () => `Scan ${stamp()}`;
+function stamp() { const d = new Date(); return `${d.getDate()} ${d.toLocaleString('en', { month: 'short' })}`; }
+const defaultName = async () => {
+  const d = new Date(), base = `Scan ${d.getDate()} ${d.toLocaleString('en', { month: 'short' })}`;
+  const names = new Set((await DB.all()).map((x) => x.name));
+  if (!names.has(base)) return base;
+  let n = 2; while (names.has(`${base} (${n})`)) n++; return `${base} (${n})`;
+};
 function relDate(t) {
   const d = new Date(t), now = new Date(), day = 864e5;
   const diff = Math.floor((new Date(now.toDateString()) - new Date(d.toDateString())) / day);
@@ -357,12 +409,10 @@ async function folderActions(all) {
     const n = await askText('Rename Folder', activeFolder); if (!n || n === activeFolder) return;
     for (const d of all.filter((x) => x.folder === activeFolder)) { d.folder = n; await DB.put(d); }
     setFolders([...savedFolders().filter((x) => x !== activeFolder), n]); activeFolder = n; renderHome('none');
-setTimeout(() => loadCv().catch(() => {}), 1200); // warm up the scanner engine so it's ready before the first photo
   } else if (v === 'del') {
     if (!await confirmDelete(`Delete “${activeFolder}”?`, 'Documents in this folder will be kept and moved out of it.')) return;
     for (const d of all.filter((x) => x.folder === activeFolder)) { d.folder = ''; await DB.put(d); }
     setFolders(savedFolders().filter((x) => x !== activeFolder)); activeFolder = ''; renderHome('none');
-setTimeout(() => loadCv().catch(() => {}), 1200); // warm up the scanner engine so it's ready before the first photo
   }
 }
 async function renameDoc(d) {
@@ -377,7 +427,6 @@ async function moveDoc(d) {
   if (f == null) return;
   d.folder = f; await DB.put(d); toast(f ? `Moved to ${f}` : 'Removed from folder');
   if (curView === 'home') renderHome('none');
-setTimeout(() => loadCv().catch(() => {}), 1200); // warm up the scanner engine so it's ready before the first photo
 }
 async function deleteDoc(d) {
   if (!await confirmDelete(`Delete “${d.name}”?`, 'This document will be deleted from this device.')) { if (curView === 'home') renderHome('none'); return; }
@@ -410,6 +459,7 @@ async function openDoc(id, mode = 'push') {
     const tile = el('div', { class: 'pg' }, el('div', { class: 'thumb' }, el('img', { src: url(p.img), alt: `Page ${i + 1}`, draggable: false })), el('span', { class: 'num', textContent: i + 1 }));
     tile.dataset.i = i; wrap.append(tile);
   });
+  $('doc').querySelector('.tip').hidden = current.pages.length < 2;
   if (mode !== 'none') show('doc', curView === 'home' || curView === 'tool' ? 'push' : 'pop');
 }
 $('docTitle').onclick = async () => { if (await renameDoc(current)) openDoc(current.id, 'none'); };
@@ -454,7 +504,7 @@ $('docAdd').onclick = () => startScan();
 $('docShare').onclick = async () => {
   const v = await menu('Share', [{ label: 'PDF', value: 'pdf', icon: 'pdf' }, { label: current.pages.length > 1 ? 'Images (JPG)' : 'Image (JPG)', value: 'jpg', icon: 'photo' }]);
   if (v === 'pdf') exportPdf(current);
-  if (v === 'jpg') deliver(current.pages.map((p, i) => new File([p.img], `${safeName(current.name)}${current.pages.length > 1 ? ' - ' + (i + 1) : ''}.jpg`, { type: 'image/jpeg' })));
+  if (v === 'jpg') { await ensureFinal(current); busy(); } if (v === 'jpg') deliver(current.pages.map((p, i) => new File([p.img], `${safeName(current.name)}${current.pages.length > 1 ? ' - ' + (i + 1) : ''}.jpg`, { type: 'image/jpeg' })));
 };
 $('docEdit').onclick = async () => {
   const v = await menu('Edit Document', [
@@ -472,7 +522,7 @@ $('docFind').onclick = async () => {
   const bar = $('docSearchBar');
   if (!bar.hidden) { bar.hidden = true; $('docSearchHint').hidden = true; $('docSearch').value = ''; docSearch(); return; }
   if (!current.pages.some((p) => p.text)) {
-    const ok = await alertBox({ title: 'Find Text First?', message: 'DocSnap needs to read the text in your pages once (on this device) before you can search them.', actions: [{ label: 'Not Now', value: false }, { label: 'Read Text', value: true, style: 'b' }] });
+    const ok = await alertBox({ title: 'Find Text First?', message: 'DocSnap needs to read the text in your pages once (on this device) before you can search them.', actions: [{ label: 'Not Now', value: false }, { label: 'Find Text', value: true, style: 'b' }] });
     if (!ok) return;
     openOcr.only = null; await runOcr(settings.lang);
   }
@@ -488,14 +538,53 @@ function docSearch() {
   hint.hidden = !q; hint.textContent = !q ? '' : hits.length ? `Found on page${hits.length > 1 ? 's' : ''} ${hits.join(', ')}` : 'No matches in this document';
 }
 $('docSearch').addEventListener('input', docSearch);
-$('docPdf').onclick = () => { let w = null; try { w = window.open('', '_blank'); } catch {} exportPdf(current, w || true); };
+$('docPdf').onclick = () => openPdfView(current);
+function openPdfView(doc) {
+  const list = $('pdfvPages'); list.replaceChildren();
+  $('pdfvTitle').textContent = doc.name;
+  $('pdfvInfo').textContent = plural(doc.pages.length, 'page') + ' · A4';
+  doc.pages.forEach((p, i) => list.append(el('figure', { class: 'pdfpg' }, el('img', { src: url(p.img), alt: `Page ${i + 1}`, loading: i > 1 ? 'lazy' : 'eager', decoding: 'async' }), el('figcaption', { textContent: `${i + 1}` }))));
+  list.parentElement.scrollTop = 0;
+  show('pdfv', 'push');
+  ensureJsPdf().catch(() => {}); // warm up the PDF writer so Share is instant
+}
+$('pdfvBack').onclick = () => show('doc', 'pop');
+$('pdfvShare').onclick = () => exportPdf(current);
 
 // ---------- Page view ----------
-async function renderPage(p) {
-  const { cv } = await loadCv();
-  const c = await blobToCanvas(p.orig);
-  const out = Vision.filter(cv, c, p.filter || 'original', p.bc);
-  p.img = await canvasToBlob(out, 0.92); Vision.free(c, out);
+async function renderPage(p) { p.img = await vFilter(p.orig, p.filter || 'original', p.bc); delete p.pending; }
+/** Finish full-resolution renders for pages saved with a preview stand-in. */
+const finishing = new Map();
+function finishPending(id) {
+  if (finishing.has(id)) return finishing.get(id);
+  const pr = finishPending1(id).finally(() => finishing.delete(id)); finishing.set(id, pr); return pr;
+}
+/** Make sure a document has its full-res pages before it leaves the app. */
+async function ensureFinal(doc) {
+  if (!doc.pages.some((x) => x.pending)) return doc;
+  busy('Finishing pages…'); await finishPending(doc.id);
+  const d = await DB.get(doc.id); if (current && current.id === d.id) current = d; return d;
+}
+async function finishPending1(id) {
+  try {
+    for (;;) {
+      const d = await DB.get(id); if (!d) break;
+      const i = d.pages.findIndex((x) => x.pending); if (i < 0) break;
+      const pg = d.pages[i], f = pg.filter, pid = pg.pid;
+      const img = await vFilter(pg.orig, f || 'original', pg.bc, null, 0.92, 1);
+      const d2 = await DB.get(id); if (!d2) break;
+      const j = d2.pages.findIndex((x) => x.pid === pid);
+      if (j >= 0 && d2.pages[j].pending && d2.pages[j].filter === f) { d2.pages[j].img = img; delete d2.pages[j].pending; await DB.put(d2); }
+      else if (j >= 0) { delete d2.pages[j].pending; await DB.put(d2); }
+      if (current && current.id === id) {
+        const cp = current.pages.find((x) => x.pid === pid);
+        if (cp && cp.pending) { cp.img = img; delete cp.pending; }
+        const k = current.pages.indexOf(cp);
+        const tile = k >= 0 && document.querySelector(`#pages .pg[data-i="${k}"] img`); if (tile) tile.src = url(img);
+        if (curView === 'page' && pageIdx === k) $('pageImg').src = url(img);
+      }
+    }
+  } catch (e) { console.warn('finishPending', e); }
 }
 /** Persist a new "orig" for the current page (optional) and re-apply its filter + adjustments. */
 async function savePage(orig) {
@@ -546,10 +635,9 @@ async function rotatePage() {
   busy(); openPage(pageIdx, 'none');
 }
 async function setPageGeometry(p, raw, q) {
-  const { cv } = await loadCv();
-  const w = Vision.warp(cv, raw, q);
-  p.raw = await canvasToBlob(raw, 0.88); p.quad = q.map((t) => ({ x: t.x / raw.width, y: t.y / raw.height }));
-  p.orig = await canvasToBlob(w, 0.92); Vision.free(w);
+  busy('Straightening…');
+  const w = await vWarp(raw, q, 0.88);
+  p.raw = w.raw; p.quad = q.map((t) => ({ x: t.x / raw.width, y: t.y / raw.height })); p.orig = w.orig;
   await renderPage(p); current.updated = Date.now(); await DB.put(current);
 }
 const backToPage = () => { show('page', 'down'); openPage(pageIdx, 'none'); };
@@ -560,14 +648,14 @@ async function recropPage() {
     const raw = await blobToCanvas(p.raw || p.orig);
     const q = p.quad && p.raw ? p.quad.map((t) => ({ x: t.x * raw.width, y: t.y * raw.height })) : null;
     busy();
-    startCrop(raw, { q: q || fullCorners(raw), found: !!q, title: 'Re-Crop', retake: true, done: async (r, q2) => { await setPageGeometry(p, r, q2); backToPage(); }, cancel: backToPage });
+    startCrop(raw, { q: q || fullCorners(raw), found: !!q, title: 'Re-Crop', retake: true, done: async (r, q2) => { try { await setPageGeometry(p, r, q2); } catch (e) { toast(e.message, 'err'); } busy(); backToPage(); }, cancel: backToPage });
   } catch (e) { busy(); toast(e.message, 'err'); }
 }
 async function retakePage() {
   const p = current.pages[pageIdx];
   const files = await pickFiles('image/*', false, 'environment'); if (!files.length) return;
   const r = await photoToCrop(files[0]); if (!r) return;
-  startCrop(r.raw, { q: r.q, found: r.found, title: 'Retake', retake: true, done: async (raw, q) => { await setPageGeometry(p, raw, q); backToPage(); }, cancel: backToPage });
+  startCrop(r.raw, { q: r.q, found: r.found, det: r.det, title: 'Retake', retake: true, done: async (raw, q) => { try { await setPageGeometry(p, raw, q); } catch (e) { toast(e.message, 'err'); } busy(); backToPage(); }, cancel: backToPage });
 }
 // Brightness / contrast
 const adj = { base: null };
@@ -575,8 +663,7 @@ async function openAdjust() {
   const p = current.pages[pageIdx];
   busy('Loading…');
   try {
-    const { cv } = await loadCv(); const c = await blobToCanvas(p.orig, 1100);
-    adj.base = Vision.filter(cv, c, p.filter || 'original'); Vision.free(c);
+    adj.base = await blobToCanvas(await vFilter(p.orig, p.filter || 'original', null, 1100, 0.9));
   } catch (e) { busy(); return toast(e.message, 'err'); }
   busy();
   const bc = p.bc || { b: 0, c: 0 }; $('adjB').value = bc.b; $('adjC').value = bc.c;
@@ -626,12 +713,13 @@ $('pgOcr').onclick = () => openOcr(pageIdx);
 $('pgSign').onclick = () => startPlace();
 const pageFileName = () => `${safeName(current.name)}${current.pages.length > 1 ? ' - ' + (pageIdx + 1) : ''}`;
 $('pgDownload').onclick = async () => {
+  if (current.pages[pageIdx].pending) { await ensureFinal(current); busy(); }
   const v = await menu('Download Page', [{ label: 'Image (JPG)', value: 'jpg', icon: 'photo' }, { label: 'PDF', value: 'pdf', icon: 'pdf' }]);
   const p = current.pages[pageIdx];
   if (v === 'jpg') deliver([new File([p.img], pageFileName() + '.jpg', { type: 'image/jpeg' })]);
   if (v === 'pdf') { busy('Preparing PDF…'); try { const b = await imagesToPdfBlob([p.img]); busy(); deliver([new File([b], pageFileName() + '.pdf', { type: 'application/pdf' })]); } catch { busy(); toast('Couldn’t create PDF', 'err'); } }
 };
-$('pgShare').onclick = () => deliver([new File([current.pages[pageIdx].img], pageFileName() + '.jpg', { type: 'image/jpeg' })]);
+$('pgShare').onclick = async () => { if (current.pages[pageIdx].pending) { await ensureFinal(current); busy(); } return deliver([new File([current.pages[pageIdx].img], pageFileName() + '.jpg', { type: 'image/jpeg' })]); };
 $('pageDelete').onclick = async () => {
   if (!await confirmDelete('Delete this page?', current.pages.length === 1 ? 'This is the only page, so the document will be deleted too.' : undefined)) return;
   current.pages.splice(pageIdx, 1);
@@ -754,6 +842,89 @@ function loadCv() {
 }
 const openCamera = (opts) => startScan(opts);
 
+// ---------- Vision worker client (OpenCV off the main thread; falls back to main thread) ----------
+const VW = {
+  w: null, failed: false, seq: 0, pend: new Map(), q: [], busy: false, wd: 0, restarts: 0,
+  start() {
+    if (this.w || this.failed) return;
+    try {
+      if (typeof OffscreenCanvas === 'undefined' || !OffscreenCanvas.prototype.convertToBlob) throw new Error('no OffscreenCanvas');
+      this.w = new Worker('cvworker.js');
+      this.w.onmessage = (e) => {
+        const { id, ok, res, err, fatal, heap } = e.data; if (!id) return;
+        if (heap) this.heap = heap;
+        const p = this.pend.get(id);
+        if (!ok && fatal && p) { console.warn('vision worker fatal: ' + err); clearTimeout(this.wd); return this.restart(p); } // fresh heap + retry once
+        this.pend.delete(id); this.busy = false; clearTimeout(this.wd);
+        if (p) (ok ? p.res(res) : p.rej(new Error(err)));
+        this.pump();
+      };
+      this.w.onerror = (e) => { e.preventDefault && e.preventDefault(); console.warn('vision worker error', e.message); const j = [...this.pend.values()][0]; if (j) this.restart(j); else { try { this.w.terminate(); } catch {} this.w = null; } };
+    } catch { this.failed = true; }
+  },
+  fail() {
+    this.failed = true; try { this.w.terminate(); } catch {} this.w = null; this.busy = false;
+    const err = new Error('__fallback__');
+    for (const p of this.pend.values()) p.rej(err); this.pend.clear();
+    this.q.splice(0).forEach((j) => j.rej(err));
+  },
+  /** prio: 0 = user is waiting (preview, detect), 1 = background (full-res precompute) */
+  call(op, data, transfer = [], prio = 0) {
+    this.start();
+    if (this.failed) return Promise.reject(new Error('__fallback__'));
+    return new Promise((res, rej) => {
+      const job = { id: ++this.seq, op, data, transfer, prio, res, rej };
+      const i = this.q.findIndex((j) => j.prio > prio); i < 0 ? this.q.push(job) : this.q.splice(i, 0, job);
+      this.pump();
+    });
+  },
+  pump() {
+    if (this.busy || !this.q.length || !this.w) return;
+    const j = this.q.shift(); this.busy = true; this.pend.set(j.id, j);
+    // watchdog: a worker that was killed (memory pressure) or wedged gets replaced and the job retried once
+    clearTimeout(this.wd);
+    this.wd = setTimeout(() => this.restart(j), j.op === 'detect' ? 15000 : 30000);
+    this.w.postMessage({ id: j.id, op: j.op, ...j.data });
+  },
+  restart(j) {
+    console.warn('vision worker restarted');
+    try { this.w.terminate(); } catch {}
+    this.w = null; this.busy = false; this.pend.delete(j.id);
+    if (++this.restarts > 4) { j.rej(new Error('__fallback__')); return this.fail(); }
+    if (!j.retried) { j.retried = true; this.q.unshift(j); } else j.rej(new Error('The scanner took too long. Please try again.'));
+    this.start(); this.pump();
+  }
+};
+const isFallback = (e) => e && e.message === '__fallback__';
+async function vDetect(canvas) {
+  try {
+    const { c, k } = Vision.scaled(canvas, 1000);
+    const bmp = await createImageBitmap(c); if (c !== canvas) Vision.free(c);
+    const d = await VW.call('detect', { src: bmp }); bmp.close();
+    return d && { ...d, q: d.q.map((p) => ({ x: p.x / k, y: p.y / k })) };
+  } catch (e) { if (!isFallback(e)) throw e; const { cv } = await loadCv(); return Vision.detect(cv, canvas); }
+}
+/** → { orig: Blob, raw?: Blob } */
+async function vWarp(canvas, q, rawQ) {
+  try {
+    const bmp = await createImageBitmap(canvas);
+    const r = await VW.call('warp', { src: bmp, q, outLong: Vision.OUT_LONG, rawQ }); bmp.close(); return r;
+  } catch (e) {
+    if (!isFallback(e)) throw e;
+    const { cv } = await loadCv(); const w = Vision.warp(cv, canvas, q);
+    const out = { orig: await canvasToBlob(w, 0.92) }; if (rawQ) out.raw = await canvasToBlob(canvas, rawQ); Vision.free(w); return out;
+  }
+}
+/** Filter a stored JPEG → JPEG Blob. maxLong caps size for previews. */
+async function vFilter(blob, name, bc, maxLong, quality = 0.92, prio = 0) {
+  try { return (await VW.call('filter', { src: blob, name, bc, maxLong, quality }, [], prio)).blob; }
+  catch (e) {
+    if (!isFallback(e)) throw e;
+    const { cv } = await loadCv(); const c = await blobToCanvas(blob, maxLong); const o = Vision.filter(cv, c, name, bc);
+    const b = await canvasToBlob(o, quality); Vision.free(c, o); return b;
+  }
+}
+
 // ---------- Capture (native camera / Photos — full-res HEIC/JPEG) ----------
 const FILTERS = [['original', 'Original'], ['magic', 'Magic Colour'], ['white', 'Magic White'], ['bw', 'B&W'], ['gray', 'Grayscale']];
 const fullCorners = (c) => [{ x: 0, y: 0 }, { x: c.width, y: 0 }, { x: c.width, y: c.height }, { x: 0, y: c.height }];
@@ -768,7 +939,7 @@ async function startScan(opts = {}) {
   if (opts.single) {
     const r = await photoToCrop(files[0]); if (!r) return;
     return startCrop(r.raw, {
-      q: r.q, found: r.found, title: 'Adjust Corners',
+      q: r.q, found: r.found, det: r.det, title: 'Adjust Corners',
       done: async (raw, q) => { busy('Straightening…'); let w = null; try { w = await warpDone(raw, q); } catch (e) { toast(e.message, 'err'); } busy(); opts.single(w); },
       cancel: () => opts.single(null)
     });
@@ -781,32 +952,42 @@ async function photoToCrop(file) {
   busy('Opening photo…');
   try {
     const raw = await Vision.decode(file, 3000);
-    const { cv } = await loadCv();
-    const det = Vision.detect(cv, raw);
     busy();
-    return { raw, q: det ? det.q : fullCorners(raw), found: !!det };
+    // detection runs in the worker while the crop screen is already visible
+    const det = vDetect(raw).catch(() => null);
+    return { raw, q: inset(raw), found: null, det };
   } catch (e) { busy(); toast('Couldn’t open that photo', 'err'); return null; }
+}
+const inset = (c) => { const dx = c.width * 0.08, dy = c.height * 0.08; return [{ x: dx, y: dy }, { x: c.width - dx, y: dy }, { x: c.width - dx, y: c.height - dy }, { x: dx, y: c.height - dy }]; };
+/** Apply an async detection result to the crop screen if the user hasn't moved corners yet. */
+function applyDetection(det, raw) {
+  $('crop').classList.add('finding'); $('cropHint').textContent = 'Finding edges…';
+  det.then((d) => {
+    if (crop.canvas !== raw) return;
+    $('crop').classList.remove('finding');
+    if (crop.touched) return;
+    if (d) { crop.corners = d.q; crop.opts && (crop.opts.found = true); $('cropHint').textContent = 'Drag the corners to fine-tune'; }
+    else { crop.corners = fullCorners(raw); $('cropHint').textContent = 'Drag the corners to the edges of the page'; }
+    drawCrop();
+  });
 }
 async function nextScanPhoto() {
   const f = scan.pending.shift();
   if (!f) return openReview();
   const r = await photoToCrop(f); if (!r) { if (scan.pending.length) return nextScanPhoto(); if (scan.pages.length) return openReview(); return; }
   startCrop(r.raw, {
-    q: r.q, found: r.found,
+    q: r.q, found: r.found, det: r.det,
     title: scan.pending.length ? `Page ${scan.pages.length + 1} · ${scan.pending.length} more` : `Page ${scan.pages.length + 1}`,
     retake: true,
     done: async (raw, q) => {
       busy('Straightening…');
       try {
-        const { cv } = await loadCv();
-        const warped = Vision.warp(cv, raw, q);
+        const w = await vWarp(raw, q, 0.88);
         scan.pages.push({
-          raw: await canvasToBlob(raw, 0.88),
-          quad: q.map((t) => ({ x: t.x / raw.width, y: t.y / raw.height })),
-          orig: await canvasToBlob(warped, 0.92),
-          filter: settings.filter || 'magic', bc: null, text: '', _preview: null
+          raw: w.raw, quad: q.map((t) => ({ x: t.x / raw.width, y: t.y / raw.height })), orig: w.orig,
+          filter: scan.pages.length ? scan.filter : (settings.filter || 'magic'), bc: null, text: '', _preview: null
         });
-        Vision.free(warped, raw);
+        Vision.free(raw);
       } catch (e) { toast(e.message, 'err'); }
       busy();
       if (scan.pending.length) return nextScanPhoto();
@@ -814,6 +995,7 @@ async function nextScanPhoto() {
     },
     cancel: () => {
       Vision.free(r.raw);
+      if (scan.pending.length) { toast('Photo skipped'); return nextScanPhoto(); }
       if (scan.pages.length) return openReview();
       if (scan.returnTo) return openDoc(scan.returnTo);
       show('home', 'down');
@@ -821,21 +1003,21 @@ async function nextScanPhoto() {
   });
 }
 async function warpDone(raw, q) {
-  const { cv } = await loadCv();
-  const w = Vision.warp(cv, raw, q); Vision.free(raw); return w;
+  const w = await vWarp(raw, q); Vision.free(raw); return blobToCanvas(w.orig);
 }
 const scan = { pages: [], i: 0, pending: [], returnTo: null, filter: 'magic' };
 
 // ---------- Crop editor (always shown; loupe while dragging) ----------
 const crop = { canvas: null, corners: null, drag: -1, disp: 1, opts: null };
 async function startCrop(canvas, opts = {}) {
-  crop.canvas = canvas; crop.opts = opts; crop.corners = opts.q ? opts.q.map((p) => ({ ...p })) : fullCorners(canvas);
+  crop.canvas = canvas; crop.opts = opts; crop.touched = false; crop.corners = opts.q ? opts.q.map((p) => ({ ...p })) : fullCorners(canvas);
   $('cropTitle').textContent = opts.title || 'Adjust Corners';
   $('cropHint').textContent = opts.found === false ? 'Drag the corners to the edges of the page' : 'Drag the corners to fine-tune';
   $('cropRetake').style.display = opts.retake ? '' : 'none';
-  $('loupe').classList.remove('on');
+  $('loupe').classList.remove('on'); $('crop').classList.remove('finding');
   if (curView !== 'crop') show('crop', 'up');
   requestAnimationFrame(drawCrop);
+  if (opts.det) applyDetection(opts.det, canvas);
 }
 function drawCrop() {
   const cc = $('cropCanvas'), src = crop.canvas; if (!src) return;
@@ -869,6 +1051,7 @@ function drawLoupe(p) {
   const wrap = $('cropWrap').getBoundingClientRect(), cc = $('cropCanvas').getBoundingClientRect();
   const sx = cc.left + p.x / crop.disp, sy = cc.top + p.y / crop.disp;
   let lx = sx - wrap.left - 60, ly = sy - wrap.top - 150;
+  if (ly < 8) ly = sy - wrap.top + 40; // finger near the top: show the loupe below it so it never hides the corner
   lx = Math.max(8, Math.min(wrap.width - 128, lx)); ly = Math.max(8, Math.min(wrap.height - 140, ly));
   L.style.transform = `translate(${lx}px,${ly}px)`; L.classList.add('on');
 }
@@ -876,7 +1059,7 @@ function canvasPoint(e) { const cc = $('cropCanvas'), r = cc.getBoundingClientRe
 $('cropCanvas').addEventListener('pointerdown', (e) => {
   const p = canvasPoint(e); let best = -1, bd = 52 * crop.disp;
   crop.corners.forEach((c, i) => { const d = Math.hypot(c.x - p.x, c.y - p.y); if (d < bd) { bd = d; best = i; } });
-  crop.drag = best; if (best >= 0) { e.target.setPointerCapture(e.pointerId); haptic(); drawCrop(); drawLoupe(crop.corners[best]); }
+  crop.drag = best; if (best >= 0) { crop.touched = true; e.target.setPointerCapture(e.pointerId); haptic(); drawCrop(); drawLoupe(crop.corners[best]); }
 });
 $('cropCanvas').addEventListener('pointermove', (e) => {
   if (crop.drag < 0) return;
@@ -887,9 +1070,9 @@ $('cropCanvas').addEventListener('pointermove', (e) => {
 ['pointerup', 'pointercancel'].forEach((t) => $('cropCanvas').addEventListener(t, () => { crop.drag = -1; $('loupe').classList.remove('on'); if (crop.canvas) drawCrop(); }));
 $('cropReset').onclick = () => { crop.corners = fullCorners(crop.canvas); drawCrop(); };
 $('cropAuto').onclick = async () => {
-  busy('Finding edges…');
-  try { const { cv } = await loadCv(); const det = Vision.detect(cv, crop.canvas); if (det) { crop.corners = det.q; drawCrop(); toast('Edges found'); } else toast('Couldn’t find edges — drag the corners', 'err'); }
-  catch (e) { toast(e.message, 'err'); } busy();
+  $('crop').classList.add('finding'); $('cropHint').textContent = 'Finding edges…';
+  try { const det = await vDetect(crop.canvas); $('crop').classList.remove('finding'); $('cropHint').textContent = 'Drag the corners to fine-tune'; if (det) { crop.corners = det.q; drawCrop(); toast('Edges found'); } else toast('Couldn’t find edges — drag the corners', 'err'); }
+  catch (e) { $('crop').classList.remove('finding'); toast(e.message, 'err'); }
 };
 $('cropRotate').onclick = () => {
   const H0 = crop.canvas.height;
@@ -899,15 +1082,18 @@ $('cropRotate').onclick = () => {
 $('cropRetake').onclick = async () => {
   const files = await pickFiles('image/*', false, 'environment'); if (!files.length) return;
   const r = await photoToCrop(files[0]); if (!r) return;
-  Vision.free(crop.canvas); crop.canvas = r.raw; crop.corners = r.q; crop.opts.found = r.found;
-  $('cropHint').textContent = r.found ? 'Drag the corners to fine-tune' : 'Drag the corners to the edges of the page';
-  drawCrop();
+  Vision.free(crop.canvas); crop.canvas = r.raw; crop.corners = r.q; crop.touched = false;
+  drawCrop(); applyDetection(r.det, r.raw);
 };
 $('cropCancel').onclick = () => {
   const o = crop.opts; crop.opts = null; Vision.free(crop.canvas); crop.canvas = null;
   (o && o.cancel) ? o.cancel() : show('home', 'down');
 };
 $('cropDone').onclick = async () => {
+  if (!crop.opts || !crop.canvas) return;
+  if (crop.opts.det && !crop.touched && $('crop').classList.contains('finding')) { // tapped before edges arrived
+    busy('Finding edges…'); const d = await crop.opts.det; busy(); if (d && !crop.touched) crop.corners = d.q;
+  }
   const o = crop.opts, raw = crop.canvas, q = Vision.order(crop.corners);
   crop.opts = null; crop.canvas = null;
   if (o && o.done) return o.done(raw, q);
@@ -920,7 +1106,8 @@ async function openReview() {
   if (!scan.pages.length) return show('home', 'down');
   scan.i = Math.min(scan.i, scan.pages.length - 1);
   scan.filter = scan.pages[0].filter || settings.filter || 'magic';
-  show('review', 'up');
+  // coming back from a re-crop launched on this screen → slide down, don't stack another entry
+  show('review', curView === 'crop' && navStack[navStack.length - 1] === 'review' ? 'down' : 'up');
   renderReviewFilters();
   await showReviewPage();
 }
@@ -933,14 +1120,11 @@ function renderReviewFilters() {
   // generate tiny previews from first page
   (async () => {
     try {
-      const { cv } = await loadCv();
-      const base = await blobToCanvas(scan.pages[0].orig, 180);
+      const base = await canvasToBlob(await blobToCanvas(scan.pages[0].orig, 180), 0.85);
       for (let i = 0; i < FILTERS.length; i++) {
-        const c = Vision.filter(cv, base, FILTERS[i][0]);
-        box.children[i].querySelector('.p').style.backgroundImage = `url(${c.toDataURL('image/jpeg', 0.7)})`;
-        Vision.free(c);
+        const b = await vFilter(base, FILTERS[i][0], null, 180, 0.7);
+        box.children[i].querySelector('.p').style.backgroundImage = `url(${url(b)})`;
       }
-      Vision.free(base);
     } catch {}
   })();
 }
@@ -949,86 +1133,91 @@ async function showReviewPage() {
   $('revCount').textContent = `${scan.i + 1} / ${scan.pages.length}`;
   $('revBanner').textContent = scan.pages.length > 1 ? 'Filter will be applied to all pages' : 'Choose a look for this page';
   $('revPrev').disabled = scan.i === 0; $('revNext').disabled = scan.i === scan.pages.length - 1;
-  $('revSpin').hidden = false; $('revImg').style.opacity = 0.3;
-  try {
-    if (!p._preview || p._previewF !== scan.filter) {
-      const { cv } = await loadCv();
-      const c = await blobToCanvas(p.orig, 1400);
-      const out = Vision.filter(cv, c, scan.filter);
-      p._preview = out.toDataURL('image/jpeg', 0.85); p._previewF = scan.filter;
-      Vision.free(c, out);
-    }
-    $('revImg').src = p._preview;
-  } catch (e) { toast(e.message, 'err'); }
+  const f = scan.filter, tok = (showReviewPage.tok = (showReviewPage.tok || 0) + 1);
+  p._previews = p._previews || {};
+  if (!p._previews[f]) {
+    // instant feedback: keep the current image visible (dimmed) with a spinner; never block the UI
+    if (!p._origUrl) p._origUrl = url(p.orig);
+    if (!$('revImg').src || $('revImg').dataset.page !== String(scan.i)) { $('revImg').src = p._origUrl; $('revImg').dataset.page = scan.i; }
+    $('revSpin').hidden = false; $('revImg').style.opacity = 0.55;
+    try { const b = await vFilter(p.orig, f, null, 1200, 0.85); (p._pblobs = p._pblobs || {})[f] = b; p._previews[f] = url(b); }
+    catch (e) { toast(e.message, 'err'); }
+  }
+  if (tok !== showReviewPage.tok) return; // user moved on
+  if (p._previews[f]) { $('revImg').src = p._previews[f]; $('revImg').dataset.page = scan.i; }
   $('revSpin').hidden = true; $('revImg').style.opacity = 1;
+  schedulePrecompute();
+}
+// Background: render full-res final pages for the chosen filter so Save is instant; also warm other looks' previews.
+let preT = 0;
+function schedulePrecompute() { clearTimeout(preT); preT = setTimeout(precomputeNext, 250); }
+async function precomputeNext() {
+  if (curView !== 'review' || !scan.pages.length) return;
+  const f = scan.filter;
+  const p = scan.pages.find((x) => x._finalF !== f || !x._final);
+  if (p) {
+    try { const b = await vFilter(p.orig, f, p.bc, null, 0.92, 1); if (scan.filter === f && scan.pages.includes(p)) { p._final = b; p._finalF = f; } } catch {}
+    return schedulePrecompute();
+  }
+  const cur = scan.pages[scan.i]; if (!cur) return;
+  const miss = FILTERS.map(([k]) => k).find((k) => !(cur._previews || {})[k]);
+  if (miss) { try { const b = await vFilter(cur.orig, miss, null, 1200, 0.85, 1); cur._previews = cur._previews || {}; cur._previews[miss] = url(b); (cur._pblobs = cur._pblobs || {})[miss] = b; } catch {} schedulePrecompute(); }
 }
 async function setReviewFilter(f) {
   if (scan.filter === f) return;
-  scan.filter = f; scan.pages.forEach((p) => { p.filter = f; p._preview = null; });
+  scan.filter = f; scan.pages.forEach((p) => { p.filter = f; });
   [...$('revFilters').children].forEach((b, i) => b.classList.toggle('on', FILTERS[i][0] === f));
+  haptic();
   await showReviewPage();
 }
 $('revPrev').onclick = () => { if (scan.i > 0) { scan.i--; showReviewPage(); } };
 $('revNext').onclick = () => { if (scan.i < scan.pages.length - 1) { scan.i++; showReviewPage(); } };
-$('revBack').onclick = () => {
-  // go back to re-crop the last page
-  const last = scan.pages.pop();
-  if (!last) return show('home', 'down');
-  (async () => {
-    const raw = await blobToCanvas(last.raw);
-    const q = last.quad.map((t) => ({ x: t.x * raw.width, y: t.y * raw.height }));
-    startCrop(raw, {
-      q, found: true, title: `Page ${scan.pages.length + 1}`, retake: true,
-      done: async (r, qq) => {
-        busy('Straightening…');
-        try {
-          const { cv } = await loadCv(); const w = Vision.warp(cv, r, qq);
-          scan.pages.push({ raw: await canvasToBlob(r, 0.88), quad: qq.map((t) => ({ x: t.x / r.width, y: t.y / r.height })), orig: await canvasToBlob(w, 0.92), filter: scan.filter, bc: null, text: '', _preview: null });
-          Vision.free(w, r);
-        } catch (e) { toast(e.message, 'err'); }
-        busy(); openReview();
-      },
-      cancel: () => { if (scan.pages.length) openReview(); else show('home', 'down'); }
-    });
-  })();
-};
+$('revBack').onclick = () => { scan.i = scan.pages.length - 1; recropReview(scan.i); };
+/** Leaving the review screen without saving always asks first (C1). */
+async function reviewLeave() {
+  const n = scan.pages.length;
+  const v = await alertBox({ title: 'Discard this scan?', message: `${plural(n, 'page')} ${n > 1 ? 'haven’t' : 'hasn’t'} been saved yet.`, actions: [{ label: 'Keep Scanning', value: false, style: 'b' }, { label: 'Discard', value: true, style: 'd' }] });
+  if (!v) return;
+  scan.pages = []; scan.returnTo ? openDoc(scan.returnTo) : show('home', 'down');
+}
+async function recropReview(idx) {
+  const p = scan.pages[idx]; if (!p) return;
+  const raw = await blobToCanvas(p.raw);
+  const q = p.quad.map((t) => ({ x: t.x * raw.width, y: t.y * raw.height }));
+  startCrop(raw, {
+    q, found: true, title: scan.pages.length > 1 ? `Re-Crop Page ${idx + 1}` : 'Re-Crop', retake: true,
+    done: async (r, qq) => {
+      busy('Straightening…');
+      try {
+        const w = await vWarp(r, qq, 0.88);
+        Object.assign(p, { raw: w.raw, quad: qq.map((t) => ({ x: t.x / r.width, y: t.y / r.height })), orig: w.orig, _previews: null, _origUrl: null, _final: null, _finalF: null });
+        Vision.free(r);
+      } catch (e) { toast(e.message, 'err'); }
+      busy(); scan.i = idx; openReview();
+    },
+    cancel: () => { scan.i = idx; openReview(); } // pages untouched
+  });
+}
 $('revAdd').onclick = async () => {
   const files = await pickFiles('image/*', true);
   if (!files.length) return;
   scan.pending = [...files]; nextScanPhoto();
 };
-$('revCrop').onclick = async () => {
-  const p = scan.pages[scan.i];
-  const raw = await blobToCanvas(p.raw);
-  const q = p.quad.map((t) => ({ x: t.x * raw.width, y: t.y * raw.height }));
-  startCrop(raw, {
-    q, found: true, title: 'Re-Crop', retake: true,
-    done: async (r, qq) => {
-      busy('Straightening…');
-      try {
-        const { cv } = await loadCv(); const w = Vision.warp(cv, r, qq);
-        Object.assign(p, { raw: await canvasToBlob(r, 0.88), quad: qq.map((t) => ({ x: t.x / r.width, y: t.y / r.height })), orig: await canvasToBlob(w, 0.92), _preview: null });
-        Vision.free(w, r);
-      } catch (e) { toast(e.message, 'err'); }
-      busy(); openReview();
-    },
-    cancel: () => openReview()
-  });
-};
+$('revCrop').onclick = () => recropReview(scan.i);
 $('revRotate').onclick = async () => {
   const p = scan.pages[scan.i]; busy('Rotating…');
   try {
     p.raw = await canvasToBlob(rotateCanvas(await blobToCanvas(p.raw)), 0.88);
     p.orig = await canvasToBlob(rotateCanvas(await blobToCanvas(p.orig)), 0.92);
     if (p.quad) p.quad = Vision.order(p.quad.map((t) => ({ x: 1 - t.y, y: t.x })));
-    p._preview = null;
+    p._previews = null; p._origUrl = null; p._final = null; p._finalF = null;
   } catch (e) { toast(e.message, 'err'); }
   busy(); showReviewPage();
 };
 $('revDel').onclick = async () => {
   if (scan.pages.length === 1) {
     if (!await confirmDelete('Discard this scan?', 'Nothing has been saved yet.')) return;
-    scan.pages = []; return show('home', 'down');
+    scan.pages = []; return scan.returnTo ? openDoc(scan.returnTo) : show('home', 'down');
   }
   scan.pages.splice(scan.i, 1); if (scan.i >= scan.pages.length) scan.i = scan.pages.length - 1;
   showReviewPage();
@@ -1036,29 +1225,25 @@ $('revDel').onclick = async () => {
 $('revDone').onclick = async () => {
   busy(`Saving ${scan.pages.length} page${scan.pages.length > 1 ? 's' : ''}…`);
   try {
-    const { cv } = await loadCv();
-    const pages = [];
-    for (let i = 0; i < scan.pages.length; i++) {
-      if (scan.pages.length > 1) busy(`Saving… ${i + 1} of ${scan.pages.length}`);
-      const p = scan.pages[i];
-      const c = await blobToCanvas(p.orig);
-      const out = Vision.filter(cv, c, p.filter || scan.filter, p.bc);
-      pages.push({
-        raw: p.raw, quad: p.quad, orig: p.orig,
-        img: await canvasToBlob(out, 0.92),
-        filter: p.filter || scan.filter, bc: p.bc || null, text: ''
-      });
-      Vision.free(c, out);
-    }
+    // Save instantly: pages whose full-res render isn't ready yet use the on-screen preview for a moment
+    // and are finished in the background (and on next launch, if the app is closed first).
+    clearTimeout(preT); VW.q = VW.q.filter((j) => (j.prio === 0 ? true : (j.rej(new Error('cancelled')), false))); // drop background previews
+    const pages = scan.pages.map((p) => {
+      const f = p.filter || scan.filter, ready = p._final && p._finalF === f;
+      const img = ready ? p._final : ((p._pblobs || {})[f] || p.orig);
+      return { pid: Date.now().toString(36) + Math.random().toString(36).slice(2, 7), raw: p.raw, quad: p.quad, orig: p.orig, img, filter: f, bc: p.bc || null, text: '', ...(ready ? {} : { pending: true }) };
+    });
     settings.filter = scan.filter; saveSettings();
     let doc;
     if (scan.returnTo) {
       doc = await DB.get(scan.returnTo);
       doc.pages.push(...pages); doc.updated = Date.now(); await DB.put(doc);
     } else {
-      doc = await newDoc(defaultName(), pages);
+      doc = await newDoc(await defaultName(), pages);
     }
-    scan.pages = []; current = doc; busy(); openDoc(doc.id);
+    scan.pages = []; current = doc; busy(); await openDoc(doc.id);
+    toast(scan.returnTo ? `Added to “${doc.name}”` : 'Saved');
+    finishPending(doc.id);
   } catch (e) { busy(); toast('Couldn’t save: ' + e.message, 'err'); }
 };
 
@@ -1099,15 +1284,19 @@ $('ocrCopy').onclick = async () => {
 $('ocrBack').onclick = () => (openOcr.only != null ? (show('page', 'pop'), openPage(openOcr.only, 'none')) : openDoc(current.id));
 
 // ---------- PDF ----------
+const ensureJsPdf = () => loadScript('vendor/jspdf.umd.min.js').then(() => window.jspdf);
+/** Fast PDF: JPEG pages are embedded as-is (no canvas re-encode); other images are converted once. */
 async function imagesToPdfBlob(blobs) {
-  const { jsPDF } = window.jspdf;
-  const pdf = new jsPDF({ unit: 'pt', format: 'a4' });
+  const { jsPDF } = await ensureJsPdf();
+  const pdf = new jsPDF({ unit: 'pt', format: 'a4', compress: false });
   const W = pdf.internal.pageSize.getWidth(), H = pdf.internal.pageSize.getHeight();
   for (let i = 0; i < blobs.length; i++) {
-    const c = await blobToCanvas(blobs[i], 2600);
-    const s = Math.min(W / c.width, H / c.height), w = c.width * s, h = c.height * s;
+    let b = blobs[i], iw, ih;
+    if (b.type !== 'image/jpeg') { const c = await blobToCanvas(b, 2600); iw = c.width; ih = c.height; b = await canvasToBlob(c, 0.9); Vision.free(c); }
+    else { const bmp = await createImageBitmap(b); iw = bmp.width; ih = bmp.height; bmp.close(); }
+    const s = Math.min(W / iw, H / ih), w = iw * s, h = ih * s;
     if (i) pdf.addPage();
-    pdf.addImage(c.toDataURL('image/jpeg', 0.88), 'JPEG', (W - w) / 2, (H - h) / 2, w, h);
+    pdf.addImage(new Uint8Array(await b.arrayBuffer()), 'JPEG', (W - w) / 2, (H - h) / 2, w, h, undefined, 'NONE');
   }
   return pdf.output('blob');
 }
@@ -1115,10 +1304,10 @@ const safeName = (n) => n.replace(/[^\w\- ]+/g, ' ').replace(/\s+/g, ' ').trim()
 async function exportPdf(doc, view) {
   busy('Preparing PDF…');
   try {
+    doc = await ensureFinal(doc); busy('Preparing PDF…');
     const blob = await imagesToPdfBlob(doc.pages.map((p) => p.img));
     busy();
-    if (view) { const u = URL.createObjectURL(blob); if (view.location) view.location.href = u; else location.href = u; setTimeout(() => URL.revokeObjectURL(u), 300000); }
-    else await deliver([new File([blob], safeName(doc.name) + '.pdf', { type: 'application/pdf' })]);
+    await deliver([new File([blob], safeName(doc.name) + '.pdf', { type: 'application/pdf' })]);
   } catch (e) { busy(); toast('Couldn’t create PDF', 'err'); }
 }
 
@@ -1128,12 +1317,26 @@ document.querySelectorAll('.tab').forEach((b) => (b.onclick = () => {
   goTab(b.dataset.tab);
 }));
 $('tabScan').onclick = () => startScan();
-document.querySelectorAll('[data-back]').forEach((b) => (b.onclick = () => show(b.dataset.back, 'pop')));
+document.querySelectorAll('[data-back]').forEach((b) => (b.onclick = () => (TABS.includes(b.dataset.back) ? goTab(b.dataset.back) : show(b.dataset.back, 'pop'))));
+document.querySelectorAll('.view').forEach((v) => (v.inert = !v.classList.contains('active')));
+// user-visible errors instead of silent failures
+window.addEventListener('error', (e) => { if (e.message && !/ResizeObserver|Script error/.test(e.message)) { console.error(e.error || e.message); busy(); toast('Something went wrong. Please try again.', 'err'); } });
+window.addEventListener('unhandledrejection', (e) => { console.error(e.reason); busy(); toast((e.reason && e.reason.message) ? `Couldn’t finish: ${e.reason.message}` : 'Something went wrong. Please try again.', 'err'); });
+// rapid-tap guard: async buttons ignore taps while their previous run is still going
+['cropDone', 'cropCancel', 'cropAuto', 'cropRetake', 'revDone', 'revBack', 'revAdd', 'revCrop', 'revRotate', 'revDel', 'docAdd', 'docShare', 'docEdit', 'docFind', 'docPdf', 'pdfvShare', 'pgEdit', 'pgOcr', 'pgSign', 'pgDownload', 'pgShare', 'pageDelete', 'adjApply', 'placeDone', 'ocrRun', 'tabScan'].forEach((id) => {
+  const b = $(id); if (!b || !b.onclick) return; const fn = b.onclick; let running = false;
+  b.onclick = async (e) => { if (running) { return; } running = true; setTimeout(() => (running = false), 1500); try { await fn.call(b, e); } finally { running = false; } };
+});
 
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
 renderHome('none');
-setTimeout(() => loadCv().catch(() => {}), 1200); // warm up the scanner engine so it's ready before the first photo
+// Prewarm the scanner engine in its worker once the app is idle (never competes with first paint)
+const idle = window.requestIdleCallback || ((f) => setTimeout(f, 1));
+addEventListener('load', () => setTimeout(() => idle(async () => {
+  VW.start();
+  try { for (const d of await DB.all()) if (d.pages.some((x) => x.pending)) finishPending(d.id); } catch {}
+}), 1500));
 (() => { // swipe between pages on the filter screen
   let x0 = null, y0 = 0; const w = $('revWrap');
   w.addEventListener('pointerdown', (e) => { x0 = e.clientX; y0 = e.clientY; });

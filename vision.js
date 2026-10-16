@@ -188,6 +188,27 @@ const Vision = (() => {
       // one more close to seal spiral-tooth gaps on the left edge
       cv.morphologyEx(paperBin, paperBin, cv.MORPH_CLOSE, k15);
 
+      // edge map for side-support scoring (rejects quads whose sides run through background)
+      const edgeMap = M(new cv.Mat());
+      {
+        const md = median(cv, blur);
+        cv.Canny(blur, edgeMap, Math.max(5, 0.66 * md), Math.min(255, Math.max(0.66 * md + 10, 1.33 * md)));
+        cv.dilate(edgeMap, edgeMap, k5);
+      }
+      const sideSupport = (quad) => {
+        const ed = edgeMap.data, sup = [];
+        for (let i = 0; i < 4; i++) {
+          const a = quad[i], b = quad[(i + 1) % 4]; let hit = 0, n = 0;
+          for (let t = 0.06; t <= 0.94; t += 0.03) {
+            const x = Math.round(a.x + (b.x - a.x) * t), y = Math.round(a.y + (b.y - a.y) * t);
+            if (x < 3 || y < 3 || x >= W - 3 || y >= H - 3) continue; // border sides: no evidence either way
+            n++; if (ed[y * W + x]) hit++;
+          }
+          sup.push(n ? hit / n : 0.7);
+        }
+        const mean = sup.reduce((x, y) => x + y, 0) / 4;
+        return 0.5 * Math.min(...sup) + 0.5 * mean;
+      };
       const consider = (quad, method, kind) => {
         quad = order(quad);
         const qa = polyArea(quad);
@@ -222,10 +243,12 @@ const Vision = (() => {
         else sizeScore = 1.6 - (frac - 0.85) * 3;     // gentle drop above 85%
         // Paper-mask helps on cluttered scenes; don't let loose minAreaRect beat a tight poly on clean scans.
         const methodBoost = method.startsWith('paper') ? (kind === 'poly' ? 1.25 : 0.7) : method.startsWith('pscore') || method.startsWith('white') ? 1.05 : 1;
-        const score = sizeScore * rectFit * rectFit * aspectScore(quad) * paperBoost * contrastBoost * borderPen * methodBoost * (kind === 'rect' ? 0.75 : 1.1);
+        const support = sideSupport(quad);
+        const supportPen = 0.35 + 0.65 * support;
+        const score = supportPen * sizeScore * rectFit * rectFit * aspectScore(quad) * paperBoost * contrastBoost * borderPen * methodBoost * (kind === 'rect' ? 0.75 : 1.1);
         cands.push({
           q: quad, score, method: method + ':' + kind,
-          meta: { qa: qa / A, inside, outside, contrast, corners, sides, rectFit }
+          meta: { qa: qa / A, inside, outside, contrast, corners, sides, rectFit, support }
         });
       };
 
@@ -268,6 +291,56 @@ const Vision = (() => {
         cv.morphologyEx(e, e, cv.MORPH_CLOSE, k9); cv.dilate(e, e, k5);
         collect(e, 'canny', cv.RETR_LIST); e.delete();
       }
+      // 2b) Hough lines → quads from the two dominant line families (handles occluded corners / merged clutter)
+      try {
+        const md = median(cv, blur);
+        const e = new cv.Mat(); cv.Canny(blur, e, Math.max(5, 0.66 * md), Math.min(255, Math.max(0.66 * md + 10, 1.33 * md)));
+        const lines = new cv.Mat();
+        cv.HoughLinesP(e, lines, 1, Math.PI / 180, 60, Math.min(W, H) * 0.18, 12);
+        const L = [];
+        for (let i = 0; i < lines.rows; i++) {
+          const [x1, y1, x2, y2] = lines.data32S.slice(i * 4, i * 4 + 4);
+          const len = Math.hypot(x2 - x1, y2 - y1); let ang = Math.atan2(y2 - y1, x2 - x1); if (ang < 0) ang += Math.PI;
+          L.push({ x1, y1, x2, y2, len, ang });
+        }
+        e.delete(); lines.delete();
+        if (L.length >= 4) {
+          // dominant orientation (mod 90°), length-weighted
+          const bins = new Array(90).fill(0);
+          for (const l of L) bins[Math.floor((l.ang * 180 / Math.PI) % 90)] += l.len;
+          let bi = 0; for (let i = 0; i < 90; i++) { const v = bins[i] + bins[(i + 1) % 90] + bins[(i + 89) % 90]; if (v > bins[bi] + bins[(bi + 1) % 90] + bins[(bi + 89) % 90]) bi = i; }
+          const th = (bi + 0.5) * Math.PI / 180;
+          const dAng = (a, b) => { let d = Math.abs(a - b) % Math.PI; return Math.min(d, Math.PI - d); };
+          const famA = [], famB = [];
+          for (const l of L) { if (dAng(l.ang, th) < 0.2) famA.push(l); else if (dAng(l.ang, th + Math.PI / 2) < 0.2) famB.push(l); }
+          // merge collinear segments by offset along the family normal, keep strongest distinct lines
+          const lineSet = (fam, ang) => {
+            const nx = -Math.sin(ang), ny = Math.cos(ang); const g = [];
+            for (const l of fam) {
+              const off = ((l.x1 + l.x2) / 2) * nx + ((l.y1 + l.y2) / 2) * ny;
+              const hit = g.find((q) => Math.abs(q.off - off) < Math.min(W, H) * 0.025);
+              if (hit) { hit.len += l.len; if (l.len > hit.best.len) hit.best = l; } else g.push({ off, len: l.len, best: l });
+            }
+            return g.sort((a, b) => b.len - a.len).slice(0, 5);
+          };
+          const A2 = lineSet(famA, th), B2 = lineSet(famB, th + Math.PI / 2);
+          const inter = (l1, l2) => {
+            const { x1, y1, x2, y2 } = l1, { x1: x3, y1: y3, x2: x4, y2: y4 } = l2;
+            const d = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4); if (Math.abs(d) < 1e-6) return null;
+            const a = x1 * y2 - y1 * x2, b = x3 * y4 - y3 * x4;
+            return { x: (a * (x3 - x4) - (x1 - x2) * b) / d, y: (a * (y3 - y4) - (y1 - y2) * b) / d };
+          };
+          for (let i = 0; i < A2.length; i++) for (let j = i + 1; j < A2.length; j++) {
+            if (Math.abs(A2[i].off - A2[j].off) < Math.min(W, H) * 0.2) continue;
+            for (let m = 0; m < B2.length; m++) for (let n = m + 1; n < B2.length; n++) {
+              if (Math.abs(B2[m].off - B2[n].off) < Math.min(W, H) * 0.2) continue;
+              const q = [inter(A2[i].best, B2[m].best), inter(A2[i].best, B2[n].best), inter(A2[j].best, B2[n].best), inter(A2[j].best, B2[m].best)];
+              if (q.some((p) => !p || p.x < -W * 0.02 || p.y < -H * 0.02 || p.x > W * 1.02 || p.y > H * 1.02)) continue;
+              consider(q.map((p) => ({ x: Math.min(W - 1, Math.max(0, p.x)), y: Math.min(H - 1, Math.max(0, p.y)) })), 'hough', 'poly');
+            }
+          }
+        }
+      } catch (err) { /* Hough unavailable — classic candidates still apply */ }
       // 3) Otsu on V−S whiteness and on blur
       const white = M(new cv.Mat()); cv.subtract(V, S, white); cv.GaussianBlur(white, white, new cv.Size(7, 7), 0);
       for (const [m, name] of [[blur, 'otsu'], [white, 'white'], [paperScore, 'pscore']]) {
@@ -351,7 +424,12 @@ const Vision = (() => {
     cv.medianBlur(sm, sm, mb);
     cv.GaussianBlur(sm, sm, new cv.Size(0, 0), Math.max(1.5, ksz / 5));
     cv.resize(sm, bg, new cv.Size(chan.cols, chan.rows), 0, 0, cv.INTER_LINEAR);
-    lut(cv, bg, (v) => Math.max(32, v));                   // floor: avoid /0 in deep shadow
+    { // floor relative to paper level: big dark regions (photos, black boxes, clutter) must not
+      // become the "background" — that is what produced bright halos/washed-out blocks.
+      const [, hiP] = histPct(bg, 0.5, 0.97, 7);
+      const floor = Math.max(32, Math.round(hiP * 0.62));
+      lut(cv, bg, (v) => Math.max(floor, v));
+    }
     cv.divide(chan, bg, out, 255, -1);
     if (strength !== 1) {
       const mix = new cv.Mat();
@@ -367,13 +445,13 @@ const Vision = (() => {
     const ch = new cv.MatVector(); cv.split(rgb, ch);
     const means = [];
     for (let i = 0; i < 3; i++) {
-      const [, hi] = histPct(ch.get(i), 0.70, 0.96, 8); // paper-ish high percentile
+      const m = ch.get(i); const [, hi] = histPct(m, 0.70, 0.96, 8); m.delete(); // paper-ish high percentile
       means.push(Math.max(40, hi));
     }
     const target = (means[0] + means[1] + means[2]) / 3;
     for (let i = 0; i < 3; i++) {
       const g = target / means[i];
-      if (Math.abs(g - 1) > 0.02) lut(cv, ch.get(i), (v) => v * g);
+      if (Math.abs(g - 1) > 0.02) { const m = ch.get(i); lut(cv, m, (v) => v * g); m.delete(); }
     }
     cv.merge(ch, rgb); ch.delete();
   }
@@ -416,7 +494,7 @@ const Vision = (() => {
   function denoise(cv, rgb) {
     const d = new cv.Mat();
     try {
-      cv.bilateralFilter(rgb, d, 7, 40, 40);
+      cv.bilateralFilter(rgb, d, 5, 40, 40);
       d.copyTo(rgb);
     } catch {}
     d.delete();
@@ -431,6 +509,26 @@ const Vision = (() => {
     ch.set(0, Lo); cv.merge(ch, lab); cv.cvtColor(lab, rgb, cv.COLOR_Lab2RGB);
     [lab, ch, L, Lo, clahe].forEach((x) => { try { x.delete(); } catch {} });
   }
+  function bleachPaper(cv, rgb, lumaThresh = 200, chromaThresh = 22) {
+    const lab = new cv.Mat();
+    cv.cvtColor(rgb, lab, cv.COLOR_RGB2Lab);
+    // lookup tables instead of per-pixel hypot/min/max (≈5× faster at 2500px)
+    const bt = new Float32Array(256);
+    for (let v = 0; v < 256; v++) { const t = Math.max(0, Math.min(1, (v - (lumaThresh - 40)) / 40)); bt[v] = v < lumaThresh - 40 ? 0 : t * t; }
+    const ct = new Float32Array(65536);
+    for (let a = 0; a < 256; a++) for (let b = 0; b < 256; b++) {
+      const chroma = Math.hypot(a - 128, b - 128);
+      ct[(a << 8) | b] = chroma > chromaThresh + 18 ? 0 : Math.max(0, Math.min(1, 1 - (chroma - chromaThresh) / 18));
+    }
+    const Ld = lab.data, d = rgb.data, n = rgb.rows * rgb.cols;
+    for (let i = 0, k = 0; i < n; i++, k += 3) {
+      const wl = bt[Ld[k]]; if (wl === 0) continue;
+      const t = wl * ct[(Ld[k + 1] << 8) | Ld[k + 2]]; if (t <= 0.01) continue;
+      const u = 255 * t, r = 1 - t;
+      d[k] = d[k] * r + u + 0.5; d[k + 1] = d[k + 1] * r + u + 0.5; d[k + 2] = d[k + 2] * r + u + 0.5;
+    }
+    lab.delete();
+  }
   function punchInkColor(cv, rgb, amount = 1.35) {
     const hsv = new cv.Mat(), ch = new cv.MatVector();
     cv.cvtColor(rgb, hsv, cv.COLOR_RGB2HSV);
@@ -440,40 +538,6 @@ const Vision = (() => {
     ch.set(1, s); cv.merge(ch, hsv); cv.cvtColor(hsv, rgb, cv.COLOR_HSV2RGB);
     [hsv, ch, s].forEach((x) => x.delete());
   }
-  /**
-   * Force near-paper pixels to pure white while leaving ink untouched.
-   * Paper = high luminance AND low chroma. Blend softly so no hard edges.
-   */
-  function bleachPaper(cv, rgb, lumaThresh = 200, chromaThresh = 22) {
-    const lab = new cv.Mat(), ch = new cv.MatVector();
-    cv.cvtColor(rgb, lab, cv.COLOR_RGB2Lab);
-    cv.split(lab, ch);
-    const L = ch.get(0), A = ch.get(1), B = ch.get(2);
-    // build soft paper weight in JS (fast enough at ≤2500px)
-    const n = L.rows * L.cols;
-    const w = new Float32Array(n);
-    const Ld = L.data, Ad = A.data, Bd = B.data;
-    for (let i = 0; i < n; i++) {
-      const chroma = Math.hypot(Ad[i] - 128, Bd[i] - 128);
-      const bright = Ld[i];
-      if (bright < lumaThresh - 40 || chroma > chromaThresh + 18) { w[i] = 0; continue; }
-      const bt = Math.max(0, Math.min(1, (bright - (lumaThresh - 40)) / 40));
-      const ct = Math.max(0, Math.min(1, 1 - (chroma - chromaThresh) / 18));
-      w[i] = bt * bt * ct; // smooth
-    }
-    // blend RGB toward white by weight
-    const rgbCh = new cv.MatVector(); cv.split(rgb, rgbCh);
-    for (let c = 0; c < 3; c++) {
-      const d = rgbCh.get(c).data;
-      for (let i = 0; i < n; i++) {
-        const t = w[i];
-        if (t > 0.01) d[i] = Math.round(d[i] * (1 - t) + 255 * t);
-      }
-    }
-    cv.merge(rgbCh, rgb);
-    [lab, ch, L, A, B, rgbCh].forEach((x) => { try { x.delete(); } catch {} });
-  }
-
   const FILTERS = ['original', 'magic', 'white', 'bw', 'gray'];
 
   function filterMagic(cv, src) {
@@ -492,7 +556,7 @@ const Vision = (() => {
       cv.medianBlur(sm, sm, Math.min(51, Math.max(21, (ksz | 1))));
       cv.GaussianBlur(sm, sm, new cv.Size(0, 0), Math.max(2, ksz / 4));
       cv.resize(sm, bg, new cv.Size(g.cols, g.rows), 0, 0, cv.INTER_LINEAR);
-      lut(cv, bg, (v) => Math.max(36, v));
+      { const [, hiP] = histPct(bg, 0.5, 0.97, 7); const floor = Math.max(36, Math.round(hiP * 0.62)); lut(cv, bg, (v) => Math.max(floor, v)); }
       const ch = new cv.MatVector(); cv.split(rgb, ch);
       const res = new cv.MatVector();
       for (let i = 0; i < 3; i++) {
@@ -507,7 +571,7 @@ const Vision = (() => {
     const [ink, paper] = histPct(g, 0.03, 0.88, 5); g.delete();
     // gentle shared stretch that keeps ink dense
     const ch2 = new cv.MatVector(); cv.split(rgb, ch2);
-    for (let i = 0; i < 3; i++) whitenCurve(cv, ch2.get(i), Math.max(5, ink - 5), Math.min(245, paper + 10));
+    for (let i = 0; i < 3; i++) { const m = ch2.get(i); whitenCurve(cv, m, Math.max(5, ink - 5), Math.min(245, paper + 10)); m.delete(); }
     cv.merge(ch2, rgb); ch2.delete();
     bleachPaper(cv, rgb, 218, 16);
     claheL(cv, rgb, 1.35, 8);
