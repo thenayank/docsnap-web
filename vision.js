@@ -367,6 +367,29 @@ const Vision = (() => {
     return { q: best.q.map((p) => ({ x: p.x / k, y: p.y / k })), method: best.method, votes: best.votes, meta: best.meta };
   }
 
+
+  /** Rect excluding dark edge rows/cols that are much darker than the page just inside them. */
+  function trimDark(cv, mat) {
+    const g = new cv.Mat(); cv.cvtColor(mat, g, cv.COLOR_RGBA2GRAY);
+    const W = g.cols, H = g.rows, d = g.data;
+    // page brightness reference: median-ish of a band just inside the edges
+    let ref = 0, n = 0; for (let y = Math.floor(H * 0.05); y < H * 0.12; y += 3) for (let x = Math.floor(W * 0.1); x < W * 0.9; x += 3) { ref += d[y * W + x]; n++; } ref /= n || 1;
+    const thr = ref * 0.62;
+    // share of clearly-dark pixels along a row/col (a sliver can cover only part of the width)
+    const rowDark = (y) => { let k = 0, m = 0; for (let x = Math.floor(W * 0.04); x < W * 0.96; x += 2) { m++; if (d[y * W + x] < thr) k++; } return k / m; };
+    const colDark = (x) => { let k = 0, m = 0; for (let y = Math.floor(H * 0.04); y < H * 0.96; y += 2) { m++; if (d[y * W + x] < thr) k++; } return k / m; };
+    const scan = (len, dark, fwd) => {
+      const max = Math.floor(len * 0.02), at = (i) => (fwd ? i : len - 1 - i);
+      const base = dark(at(max + 6)); // ink/rules inside the page shouldn't count
+      let t = 0; for (let i = 0; i < max; i++) if (dark(at(i)) > Math.max(0.05, base * 2 + 0.04)) t = i + 1;
+      return t ? Math.min(max, t + 4) : 0;
+    };
+    const top = scan(H, rowDark, true), bot = scan(H, rowDark, false), lft = scan(W, colDark, true), rgt = scan(W, colDark, false);
+    g.delete();
+    if (!(top || bot || lft || rgt)) return null;
+    return new cv.Rect(lft, top, W - lft - rgt, H - top - bot);
+  }
+
   /** Perspective-correct at high resolution (≤ OUT_LONG on the long side). q in src px. */
   function warp(cv, src, q, outLong = OUT_LONG) {
     const d = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -381,7 +404,11 @@ const Vision = (() => {
     const to = cv.matFromArray(4, 1, cv.CV_32FC2, [0, 0, w, 0, w, h, 0, h]);
     const T = cv.getPerspectiveTransform(from, to);
     cv.warpPerspective(m, out, T, new cv.Size(w, h), cv.INTER_CUBIC, cv.BORDER_REPLICATE);
-    const c = document.createElement('canvas'); cv.imshow(c, out);
+    // trim thin background slivers (quad edge a hair outside the paper) — at most 2.5% per side
+    const r = trimDark(cv, out); let fin = out;
+    if (r) fin = out.roi(r);
+    const c = document.createElement('canvas'); cv.imshow(c, fin);
+    if (fin !== out) fin.delete();
     [m, out, from, to, T].forEach((x) => x.delete()); if (s2 !== src) free(s2);
     return c;
   }

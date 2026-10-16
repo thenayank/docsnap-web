@@ -125,7 +125,7 @@
       <button class="cell danger" id="setWipe"><span class="ic"><svg class="i"><use href="#i-trash"/></svg></span><span class="ct"><b>Delete All Documents</b></span></button>
     </div>
     <p class="foot"><svg class="i"><use href="#i-shield"/></svg> DocSnap keeps your documents only on this device. Add it to your Home Screen from Safari's Share menu to use it like an app, even offline.</p>
-    <p class="foot small">DocSnap 3.1</p>
+    <p class="foot small">DocSnap 3.2</p>
   </div>
 </section>
 
@@ -185,9 +185,22 @@
   <footer class="cta"><button class="btn primary" onclick="document.getElementById('pdfvShare').click()">Share PDF</button></footer>
 </section>
 
+<!-- ============ Full-screen: Batch scan (capture many → review all crops) ============ -->
+<section id="batch" class="view dark full">
+  <header class="nav dark"><div class="nav-l"><button class="nbtn txt" id="batCancel">Cancel</button></div><div class="nav-t" id="batTitle">Scan</div>
+    <div class="nav-r"><button class="nbtn txt bold" id="batNext">Next</button></div></header>
+  <p class="banner" id="batBanner">Tap a page to adjust its crop · hold to reorder</p>
+  <div class="batgrid scroll" id="batGrid"></div>
+  <footer class="batbar">
+    <button class="tb" id="batPhotos"><svg class="i"><use href="#i-photos"/></svg><span>Photos</span></button>
+    <button class="shutter" id="batCam" aria-label="Scan next page"><span></span></button>
+    <button class="tb" id="batDone"><svg class="i"><use href="#i-check"/></svg><span>Done</span></button>
+  </footer>
+</section>
+
 <!-- ============ Full-screen: Filter review (after scanning) ============ -->
 <section id="review" class="view dark full">
-  <header class="nav dark"><div class="nav-l"><button class="nbtn back" id="revBack" aria-label="Back to crop"><svg class="i"><use href="#i-back"/></svg>Crop</button></div><div class="nav-t" id="revTitle">Filter</div>
+  <header class="nav dark"><div class="nav-l"><button class="nbtn back" id="revBack" aria-label="Back to pages"><svg class="i"><use href="#i-back"/></svg>Pages</button></div><div class="nav-t" id="revTitle">Filter</div>
     <div class="nav-r"><button class="nbtn txt bold" id="revDone">Save</button></div></header>
   <p class="banner" id="revBanner">Filter will be applied to all pages</p>
   <div class="revwrap" id="revWrap"><img id="revImg" alt=""><div class="spin small" id="revSpin" hidden></div></div>
