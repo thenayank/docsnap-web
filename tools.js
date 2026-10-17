@@ -28,6 +28,11 @@ async function run(msg, fn) {
   busy();
 }
 const lead = (t) => el('p', { class: 'lead', textContent: t });
+/** 3.3.3: on-screen confirmation after a tool finishes — on iOS the share sheet closes and otherwise nothing shows the file was made. */
+function doneNote(body, text) {
+  let res = body.querySelector('.result'); if (!res) body.append(res = el('div', { class: 'result' }));
+  res.replaceChildren(icon('check'), el('span', { textContent: text }));
+}
 /** File picker drop-zone + reorderable list. onChange(files) refreshes CTA state. */
 function filePicker(body, { accept = 'application/pdf', multiple = true, label = 'Choose PDF', hint = 'From Files', onChange = () => {} } = {}) {
   const st = { files: [] };
@@ -157,11 +162,9 @@ const TOOLS = {
       doc.encrypt({ userPassword: pw.value, ownerPassword: pw.value, permissions: { printing: 'highResolution', copying: true, modifying: true } });
       const name = `${baseName(st.files[0])} (protected).pdf`;
       busy(); await deliver([pdfFile(await doc.save(), name)]);
-      // 3.3.1: confirm on screen too (the share sheet may already be gone by the time the user looks back)
-      let res = body.querySelector('.result'); if (!res) body.append(res = el('div', { class: 'result' }));
-      res.replaceChildren(icon('check'), el('span', { textContent: `Password added · ${name}` }));
+      doneNote(body, `Password added · ${name}`);
     }), true, true);
-    const st = filePicker(body, { multiple: false, onChange: (f) => (go.disabled = !f.length) });
+    const st = filePicker(body, { multiple: false, onChange: (f) => { go.disabled = !f.length; body.querySelector(".result")?.remove(); } });
     body.append(el('h2', { class: 'ghead', textContent: 'Password' }), field(pw, pw2));
     cta.append(go);
   }),
@@ -176,9 +179,11 @@ const TOOLS = {
       catch (e) { throw new Error('Wrong password'); }
       const out = await PDFLib.PDFDocument.create();
       (await out.copyPages(doc, doc.getPageIndices())).forEach((p) => out.addPage(p));
-      busy(); await deliver([pdfFile(await out.save(), `${baseName(st.files[0])} (unlocked).pdf`)]);
+      const name = `${baseName(st.files[0])} (unlocked).pdf`;
+      busy(); await deliver([pdfFile(await out.save(), name)]);
+      doneNote(body, `Unlocked · ${name}`);
     }), true, true);
-    const st = filePicker(body, { multiple: false, onChange: (f) => (go.disabled = !f.length) });
+    const st = filePicker(body, { multiple: false, onChange: (f) => { go.disabled = !f.length; body.querySelector(".result")?.remove(); } });
     body.append(el('h2', { class: 'ghead', textContent: 'Password' }), field(pw));
     cta.append(go);
   }),

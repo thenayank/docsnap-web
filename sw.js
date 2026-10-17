@@ -1,7 +1,7 @@
-const VERSION = 'docsnap-v12';
-const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'vision.js', 'cvworker.js', 'detector-v2.js', 'manifest.webmanifest',
+const VERSION = 'docsnap-v13';
+const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'vision.js', 'cvworker.js', 'detector-v2.js', 'detector-v3.js', 'manifest.webmanifest',
   'tools.js', 'camera.js', 'seg.html', 'seg.js', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png',
-  'splash/splash-light-1179x2556.png', 'splash/splash-dark-1179x2556.png', 'splash/splash-light-1290x2796.png', 'splash/splash-dark-1290x2796.png'];
+  'splash/splash-light-1179x2556.png', 'splash/splash-dark-1179x2556.png', 'splash/splash-light-1290x2796.png', 'splash/splash-dark-1290x2796.png', 'splash/splash-light-1170x2532.png', 'splash/splash-dark-1170x2532.png', 'splash/splash-light-1125x2436.png', 'splash/splash-dark-1125x2436.png', 'splash/splash-light-1284x2778.png', 'splash/splash-dark-1284x2778.png', 'splash/splash-light-828x1792.png', 'splash/splash-dark-828x1792.png', 'splash/splash-light-1242x2688.png', 'splash/splash-dark-1242x2688.png', 'splash/splash-light-750x1334.png', 'splash/splash-dark-750x1334.png'];
 // Heavy engines are fetched in the background after install so they never slow the first visit.
 const HEAVY = ['vendor/jspdf.umd.min.js', 'vendor/pdf-lib.min.js', 'vendor/pdf.min.js', 'vendor/pdf.worker.min.js', 'vendor/opencv.js', 'vendor/tesseract.min.js',
   'vendor/tesseract/worker.min.js', 'vendor/tesseract/tesseract-core-simd-lstm.wasm.js', 'vendor/tesseract/lang/eng.traineddata.gz'];

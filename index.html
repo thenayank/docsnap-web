@@ -15,6 +15,18 @@
 <link rel="apple-touch-startup-image" media="screen and (device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait) and (prefers-color-scheme: dark)" href="splash/splash-dark-1179x2556.png">
 <link rel="apple-touch-startup-image" media="screen and (device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait) and (prefers-color-scheme: light)" href="splash/splash-light-1290x2796.png">
 <link rel="apple-touch-startup-image" media="screen and (device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait) and (prefers-color-scheme: dark)" href="splash/splash-dark-1290x2796.png">
+<link rel="apple-touch-startup-image" media="screen and (device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait) and (prefers-color-scheme: light)" href="splash/splash-light-1170x2532.png">
+<link rel="apple-touch-startup-image" media="screen and (device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait) and (prefers-color-scheme: dark)" href="splash/splash-dark-1170x2532.png">
+<link rel="apple-touch-startup-image" media="screen and (device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait) and (prefers-color-scheme: light)" href="splash/splash-light-1125x2436.png">
+<link rel="apple-touch-startup-image" media="screen and (device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait) and (prefers-color-scheme: dark)" href="splash/splash-dark-1125x2436.png">
+<link rel="apple-touch-startup-image" media="screen and (device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait) and (prefers-color-scheme: light)" href="splash/splash-light-1284x2778.png">
+<link rel="apple-touch-startup-image" media="screen and (device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait) and (prefers-color-scheme: dark)" href="splash/splash-dark-1284x2778.png">
+<link rel="apple-touch-startup-image" media="screen and (device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait) and (prefers-color-scheme: light)" href="splash/splash-light-828x1792.png">
+<link rel="apple-touch-startup-image" media="screen and (device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait) and (prefers-color-scheme: dark)" href="splash/splash-dark-828x1792.png">
+<link rel="apple-touch-startup-image" media="screen and (device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait) and (prefers-color-scheme: light)" href="splash/splash-light-1242x2688.png">
+<link rel="apple-touch-startup-image" media="screen and (device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait) and (prefers-color-scheme: dark)" href="splash/splash-dark-1242x2688.png">
+<link rel="apple-touch-startup-image" media="screen and (device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait) and (prefers-color-scheme: light)" href="splash/splash-light-750x1334.png">
+<link rel="apple-touch-startup-image" media="screen and (device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait) and (prefers-color-scheme: dark)" href="splash/splash-dark-750x1334.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -125,6 +137,7 @@
     <h2 class="ghead">Scanning</h2>
     <div class="group">
       <button class="cell" id="setFilterBtn"><span class="ic"><svg class="i"><use href="#i-wand"/></svg></span><span class="ct"><b>Default Look</b></span><span class="val" id="setFilterVal"></span><svg class="i chev"><use href="#i-chev"/></svg></button>
+      <button class="cell" id="setPageSizeBtn"><span class="ic"><svg class="i"><use href="#i-docs"/></svg></span><span class="ct"><b>PDF Page Size</b></span><span class="val" id="setPageSizeVal"></span><svg class="i chev"><use href="#i-chev"/></svg></button>
       <button class="cell" id="setLangBtn"><span class="ic"><svg class="i"><use href="#i-globe"/></svg></span><span class="ct"><b>Text Language</b></span><span class="val" id="setLangVal"></span><svg class="i chev"><use href="#i-chev"/></svg></button>
     </div>
     <h2 class="ghead">Signature</h2>
@@ -135,7 +148,7 @@
       <button class="cell danger" id="setWipe"><span class="ic"><svg class="i"><use href="#i-trash"/></svg></span><span class="ct"><b>Delete All Documents</b></span></button>
     </div>
     <p class="foot"><svg class="i"><use href="#i-shield"/></svg> DocSnap keeps your documents only on this device. Add it to your Home Screen from Safari's Share menu to use it like an app, even offline.</p>
-    <p class="foot small">DocSnap 3.3.2.1</p>
+    <p class="foot small">DocSnap 3.3.3</p>
   </div>
 </section>
 
@@ -271,7 +284,7 @@
 <section id="crop" class="view full cropv">
   <header class="nav solid"><div class="nav-l"><button class="nbtn txt" id="cropCancel">Cancel</button></div><div class="nav-t" id="cropTitle">Adjust Corners</div>
     <div class="nav-r"><button class="nbtn txt bold" id="cropDone">Next</button></div></header>
-  <div class="cropwrap" id="cropWrap"><canvas id="cropCanvas"></canvas><canvas id="loupe" width="240" height="240"></canvas></div>
+  <div class="cropwrap" id="cropWrap"><canvas id="cropCanvas"></canvas><canvas id="loupe" width="240" height="240"></canvas><div id="cropSpin" class="cropspin" hidden aria-label="Refining edges"></div></div>
   <p class="crophint" id="cropHint">Drag the corners or edges to fine-tune</p>
   <div class="cropstrip" id="cropStrip" hidden role="tablist" aria-label="Pages"></div>
   <footer class="toolbar croptb">

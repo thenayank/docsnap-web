@@ -4,6 +4,8 @@ self.HTMLImageElement = self.HTMLImageElement || function () {};
 self.HTMLCanvasElement = self.HTMLCanvasElement || OffscreenCanvas;
 self.document = self.document || { createElement: () => new OffscreenCanvas(1, 1), getElementById: () => null };
 importScripts('vendor/opencv.js', 'vision.js', 'detector-v2.js');
+self.window = self.window || self; // detector-v3 reads window.cv (set after OpenCV has loaded so Emscripten still sees a worker)
+importScripts('detector-v3.js');
 let ready = false; const queue = [];
 (function wait() {
   try { if (self.cv && self.cv.Mat) { new cv.Mat().delete(); ready = true; queue.splice(0).forEach(handle); postMessage({ ready: true }); return; } } catch {}
@@ -32,31 +34,55 @@ const OPS = {
     const o = Vision.filter(cv, c, name, bc);
     return { blob: await jpeg(o, quality || 0.92), w: o.width, h: o.height };
   },
-  // live camera: small frame (~500px long side) → corners; the frame canvas is reused between calls
-  async detectLive({ src, conf: CONF_FLAG = 0.4, book = false }) {
-    // 3.3.2: frames arrive at ~960px. v1 runs on a 480px copy (speed); v2's confidence is taken on the 960px frame, because
-    // at 480px it under-rates real pages (pure-v2 gate would hide 'Page found' on most real books and covers)
+  // live camera (3.3.3): detector-v3 on a ≤720px frame; the outline shows only for a confident (≥ CONF_FLAG), not-frame-sized quad
+  async detectLive({ src, conf: CONF_FLAG = 0.5, book = false, fast = false }) {
     let F = self._liveF; if (!F || F.width !== src.width || F.height !== src.height) F = self._liveF = new OffscreenCanvas(src.width, src.height);
     F.getContext('2d').drawImage(src, 0, 0); src.close && src.close();
-    const f = Math.min(1, 480 / Math.max(F.width, F.height)), w4 = Math.round(F.width * f), h4 = Math.round(F.height * f);
-    let c = self._liveC; if (!c || c.width !== w4 || c.height !== h4) c = self._liveC = new OffscreenCanvas(w4, h4);
-    c.getContext('2d').drawImage(F, 0, 0, w4, h4);
-    const t = performance.now(), d0 = Vision.detect(cv, c);
-    const d = d0 && { ...d0, q: d0.q.map((p) => ({ x: p.x / f, y: p.y / f })) };
-    // live gate (3.3.1): the outline only shows for a confident, edge-supported, not-frame-sized quad
-    // + hard full-frame rule (never 'Page found' on a > FRAME_MAX quad, whatever the confidence) + v2 confidence ≥ CONF_FLAG
-    let ok = d && d.score >= 0.2 && d.meta.support >= 0.5 && d.meta.qa <= 0.85 && !Vision.fullFrame(d.q, F.width, F.height), conf = null;
-    if (ok) { try { const r = DetectorV2.refineFrom(F, { q: d.q, votes: d.votes }); conf = r ? r.confidence : 0; if (!r || r.noPage || !(conf >= CONF_FLAG)) ok = false; } catch (e) { conf = null; } }
-    // Book mode (3.3.2 stop-gap until Shuri's spread detector): the outline must look like an open spread (wider than tall,
-    // or found by the book merge) — otherwise no 'Page found' and no auto-capture on a bad outline
-    if (ok && book) { const q = d.q, w = (Math.hypot(q[1].x - q[0].x, q[1].y - q[0].y) + Math.hypot(q[2].x - q[3].x, q[2].y - q[3].y)) / 2, h = (Math.hypot(q[3].x - q[0].x, q[3].y - q[0].y) + Math.hypot(q[2].x - q[1].x, q[2].y - q[1].y)) / 2;
-      if (!(/^book/.test(d.method || '') || (w / h > 1.15 && w / h < 2.6))) return { q: null, conf, notBook: true, ms: performance.now() - t }; }
-    return ok ? { q: d.q, votes: d.votes, score: d.score, conf, ms: performance.now() - t } : { q: null, conf, ms: performance.now() - t };
+    const t = performance.now(); let r = null;
+    try { r = DetectorV3.detect(F, { fast }); } catch (e) { r = null; }
+    let q = r && r.corners.map((p) => ({ x: p[0], y: p[1] })), conf = r ? r.confidence : null, kind = r && r.kind;
+    let ok = !!q && conf >= CONF_FLAG && !Vision.fullFrame(q, F.width, F.height);
+    if (!ok) { // regression guard: where v3 shows nothing, the 3.3.2 path (v1 on a 480px copy + v2 confidence) may still show a confident outline
+      try {
+        const f = Math.min(1, 480 / Math.max(F.width, F.height)), w4 = Math.round(F.width * f), h4 = Math.round(F.height * f);
+        let c = self._liveC; if (!c || c.width !== w4 || c.height !== h4) c = self._liveC = new OffscreenCanvas(w4, h4);
+        c.getContext('2d').drawImage(F, 0, 0, w4, h4);
+        const d0 = Vision.detect(cv, c), d = d0 && { ...d0, q: d0.q.map((p) => ({ x: p.x / f, y: p.y / f })) };
+        if (d && d.score >= 0.2 && d.meta.support >= 0.5 && d.meta.qa <= 0.85 && !Vision.fullFrame(d.q, F.width, F.height)) {
+          const r2 = DetectorV2.refineFrom(F, { q: d.q, votes: d.votes });
+          if (r2 && !r2.noPage && r2.confidence >= CONF_FLAG) { q = d.q; conf = r2.confidence; kind = /^book/.test(d.method || '') ? 'book' : 'page'; ok = true; }
+        }
+      } catch (e) {}
+    }
+    // Book mode: only a spread may light up 'Page found' (v3 says book, or the outline is spread-shaped)
+    if (ok && book) { const w = (Math.hypot(q[1].x - q[0].x, q[1].y - q[0].y) + Math.hypot(q[2].x - q[3].x, q[2].y - q[3].y)) / 2, h = (Math.hypot(q[3].x - q[0].x, q[3].y - q[0].y) + Math.hypot(q[2].x - q[1].x, q[2].y - q[1].y)) / 2;
+      if (!(kind === 'book' || (w / h > 1.15 && w / h < 2.6))) return { q: null, conf, kind, notBook: true, ms: performance.now() - t }; }
+    return ok ? { q, conf, kind, ms: performance.now() - t } : { q: null, conf, kind, ms: performance.now() - t };
   },
-  // detector-v2 corner refinement on a v1 result (after capture / import)
-  async refine({ src, q, votes }) {
-    const c = await toCanvas(src); const r = DetectorV2.refineFrom(c, { q, votes });
-    return r && r.corners && r.corners.every((p) => Number.isFinite(p[0]) && Number.isFinite(p[1])) ? { q: r.corners.map((p) => ({ x: p[0], y: p[1] })), conf: r.confidence, noPage: r.noPage } : null;
+  // after capture / import (3.3.3): detector-v3 full detection replaces the v2 refine. Regression guard: if v3 is weak
+  // (conf < V3_WEAK) or finds nothing, v2's refinement of the v1 quad is used when it is more confident than v3.
+  async refine({ src, q, votes, conf: CONF_FLAG = 0.5 }) {
+    const c = await toCanvas(src), V3_WEAK = 0.3; let out = null;
+    try {
+      const r = DetectorV3.detect(c);
+      if (r && r.corners.every((p) => Number.isFinite(p[0]) && Number.isFinite(p[1])))
+        out = { q: r.corners.map((p) => ({ x: p[0], y: p[1] })), conf: r.confidence, kind: r.kind, spine: r.spine, gutterWidth: r.gutterWidth, quality: r.quality, method: r.method, v: 3 };
+    } catch (e) { out = null; }
+    if ((!out || out.conf < V3_WEAK) && q) {
+      try {
+        const r2 = DetectorV2.refineFrom(c, { q, votes });
+        if (r2 && !r2.noPage && r2.confidence > (out ? out.conf : 0) && r2.corners.every((p) => Number.isFinite(p[0]))) { // the more confident crop wins; below CONF_FLAG it still gets the dot
+          const q2 = r2.corners.map((p) => ({ x: p[0], y: p[1] }));
+          if (!Vision.fullFrame(q2, c.width, c.height)) out = { q: q2, conf: r2.confidence, kind: 'page', spine: null, quality: r2.quality, method: 'v2-guard', v: 2, v3conf: out ? out.conf : null };
+        }
+      } catch (e) {}
+    }
+    return out; // null → caller keeps v1 (flagged)
+  },
+  // crop snap (3.3.3): detector-v3 refines the user's quad; per-side quality tells whether the corner sits on real paper edges
+  async snap({ src, q }) {
+    const c = await toCanvas(src); const r = DetectorV3.scoreQuad(c, q.map((p) => [p.x, p.y]));
+    return r && r.corners ? { q: r.corners.map((p) => ({ x: p[0], y: p[1] })), conf: r.confidence, quality: r.quality } : null;
   },
   ping() { return true; }
 };

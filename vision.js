@@ -2,7 +2,7 @@
 /* DocSnap vision: document detection, perspective correction and scan filters (OpenCV.js). */
 const Vision = (() => {
   const FRAME_MAX = 0.90;         // 3.3.1 hard rule: a quad covering > 90% of the frame is the photo itself, never a page (independent of confidence)
-  const OUT_LONG = 2500;          // output long side (px)
+  const OUT_LONG = 4096;          // 3.3.3: output keeps the page's native resolution (cap = source cap; was 2500)
   const SRC_MAX_LONG = 4096;      // iOS canvas limit ~16.7 MP; 4096×3072 = 12.6 MP
   const SRC_MAX_AREA = 16000000;
 
@@ -445,7 +445,7 @@ const Vision = (() => {
   function warp(cv, src, q, outLong = OUT_LONG) {
     const d = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
     const w0 = Math.max(d(q[0], q[1]), d(q[3], q[2])), h0 = Math.max(d(q[0], q[3]), d(q[1], q[2]));
-    const os = Math.min(1.25, outLong / Math.max(w0, h0)); // allow slight upscale for small docs
+    const os = Math.min(1, outLong / Math.max(w0, h0)); // 3.3.3: native pixels — never downscale below the source, never invent pixels
     const w = Math.round(w0 * os), h = Math.round(h0 * os);
     // work on a source scaled just enough for the output (saves memory on iPhone)
     const ss = Math.min(1, os * 1.1);

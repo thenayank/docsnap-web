@@ -100,7 +100,7 @@ const DetectorV2 = (() => {
     let r = refine(G, base.q.map((p) => [p.x * k, p.y * k])); r = refine(G, r.q);
     const Q = r.quality, mean = Q.reduce((a, b) => a + b, 0) / 4;
     const conf = Math.max(0, Math.min(1, 0.5 * mean + 0.5 * Math.min(...Q)));
-    return { corners: r.q.map((p) => [p[0] / k, p[1] / k]), confidence: +conf.toFixed(3), noPage: conf < MIN_CONF };
+    return { corners: r.q.map((p) => [p[0] / k, p[1] / k]), confidence: +conf.toFixed(3), noPage: conf < MIN_CONF, quality: Q.map((v) => +v.toFixed(3)) };
   }
   return { detect, refineFrom };
 })();

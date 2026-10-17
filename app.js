@@ -30,7 +30,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // ---------- settings ----------
 /** v2 confidence below this → orange dot + 'Check the corners' hint, and no live 'Page found'. Single knob (was 0.5).
  *  3.3.2: pure v2 rule — v1's score is a heuristic, not a calibrated confidence, so it no longer overrides the flag. */
-const CONF_FLAG = 0.4;
+const CONF_FLAG = 0.5; // 3.3.3: detector-v3 confidence, pure rule for pages and books (orange dot + live 'Page found' gate)
 const isLow = (conf) => !(conf >= CONF_FLAG);
 const settings = Object.assign({ filter: 'magic', lang: 'eng', layout: 'list' }, JSON.parse(localStorage.getItem('settings') || '{}'));
 const saveSettings = () => localStorage.setItem('settings', JSON.stringify(settings));
@@ -114,13 +114,14 @@ document.querySelectorAll('.view').forEach((v) => {
 document.addEventListener('pointerdown', (e) => { if (e.target.closest('.btn.primary,.scanbtn,.shutter')) haptic(); }, { passive: true });
 
 // ---------- toasts & HUD ----------
-function toast(msg, kind = 'ok') {
-  const t = $('toast'); t.className = 'toast' + (kind === 'err' ? ' err' : '');
-  t.replaceChildren(icon(kind === 'err' ? 'x' : 'check'), el('span', { textContent: msg }));
+function toast(msg, kind = 'ok', opt = {}) {
+  const t = $('toast'); t.className = 'toast' + (kind === 'err' ? ' err' : '') + (opt.action ? ' act' : '');
+  t.replaceChildren(icon(kind === 'err' ? 'x' : 'check'), el('span', { textContent: msg }),
+    opt.action ? el('button', { class: 'tact', onclick: (e) => { e.stopPropagation(); clearTimeout(toast._t); t.classList.remove('show'); opt.onAction && opt.onAction(); } }, opt.action) : null);
   // never cover an open action sheet: sit just above it
   const sh = $('sheet'); t.style.bottom = sh.classList.contains('on') ? `${innerHeight - sh.getBoundingClientRect().top + 12}px` : '';
   requestAnimationFrame(() => t.classList.add('show'));
-  clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), 2600);
+  clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), opt.ms || 2600);
 }
 function busy(msg) {
   const b = $('busy');
@@ -394,22 +395,41 @@ function swipeRow(d, img, meta, snip) {
   const row = el('div', { class: 'swipe' + (homeSel.ids.has(d.id) ? ' sel' : ''), 'data-id': d.id }, el('div', { class: 'sacts' },
     el('button', { class: 'mv', onclick: () => moveDoc(d) }, icon('folder'), 'Move'),
     el('button', { class: 'del', onclick: () => deleteDoc(d) }, icon('trash'), 'Delete')), content);
-  let x0 = null, y0 = 0, dx = 0, open = false, horiz = null;
-  content.addEventListener('pointerdown', (e) => { x0 = e.clientX; y0 = e.clientY; dx = 0; horiz = null; });
+  // 3.3.3 swipe rules: a swipe needs ≥ SWIPE_MIN px sideways and a mostly-horizontal angle; actions are only painted while
+  // swiping or open (a tap never reveals them); a half-swipe settles fully open or closed; a tap on an open row only closes it;
+  // with any row open, a tap anywhere in the list closes it first.
+  const ACT_W = 160, SWIPE_MIN = 30;
+  let x0 = null, y0 = 0, dx = 0, horiz = null, moved = false;
+  const setOpen = (o) => { row._open = o; row.classList.toggle('open', o); content.style.transform = o ? `translateX(-${ACT_W}px)` : '';
+    if (o) { if (swipeRow.openRow && swipeRow.openRow !== row) swipeRow.openRow._close(); swipeRow.openRow = row; } else if (swipeRow.openRow === row) swipeRow.openRow = null;
+    if (!o) setTimeout(() => { if (!row._open && !row.classList.contains('swiping')) row.classList.remove('reveal'); }, 360); else row.classList.add('reveal'); };
+  row._close = () => setOpen(false); row._open = false;
+  content.addEventListener('pointerdown', (e) => { x0 = e.clientX; y0 = e.clientY; dx = 0; horiz = null; moved = false; });
   content.addEventListener('pointermove', (e) => {
     if (x0 == null) return;
     const mx = e.clientX - x0, my = e.clientY - y0;
-    if (horiz == null && (Math.abs(mx) > 8 || Math.abs(my) > 8)) { horiz = Math.abs(mx) > Math.abs(my); if (horiz) { content.setPointerCapture(e.pointerId); content.classList.add('drag'); } }
+    if (Math.abs(mx) > 10 || Math.abs(my) > 10) moved = true;
+    if (horiz == null) {
+      if (Math.abs(my) > 10 && Math.abs(my) >= Math.abs(mx)) horiz = false;                       // vertical: let the list scroll
+      else if (Math.abs(mx) >= SWIPE_MIN && Math.abs(mx) > 2 * Math.abs(my)) {                     // ≥30px and within ~27° of horizontal
+        horiz = true; content.setPointerCapture(e.pointerId); content.classList.add('drag'); row.classList.add('swiping', 'reveal');
+      }
+    }
     if (!horiz) return;
-    dx = Math.min(0, Math.max(-200, mx + (open ? -160 : 0)));
+    dx = Math.min(0, Math.max(-ACT_W - 40, e.clientX - x0 + (row._open ? -ACT_W : 0)));
     content.style.transform = `translateX(${dx}px)`;
   });
   const end = () => {
-    if (x0 == null) return; x0 = null; content.classList.remove('drag');
-    if (horiz) { open = dx < -70; content.style.transform = open ? 'translateX(-160px)' : ''; if (open) haptic(); }
+    if (x0 == null) return; x0 = null; content.classList.remove('drag'); row.classList.remove('swiping');
+    if (horiz) { setOpen(dx < -ACT_W / 2); if (row._open) haptic(); }
   };
   content.addEventListener('pointerup', end); content.addEventListener('pointercancel', end);
-  content.addEventListener('click', () => { if (horiz) return; if (open) { open = false; content.style.transform = ''; return; } openDoc(d.id); });
+  content.addEventListener('click', (e) => {
+    if (horiz || moved) return;                                     // the gesture was a swipe / scroll, not a tap
+    if (row._open) { setOpen(false); return; }                       // first tap on an open row only closes it
+    if (swipeRow.openRow) { swipeRow.openRow._close(); return; }     // another row is open: close that one, don't open
+    openDoc(d.id);
+  });
   return row;
 }
 let searchT; $('search').addEventListener('input', () => { clearTimeout(searchT); searchT = setTimeout(() => renderHome('none'), 180); });
@@ -438,10 +458,12 @@ async function moveDoc(d) {
   d.folder = f; await DB.put(d); toast(f ? `Moved to ${f}` : 'Removed from folder');
   if (curView === 'home') renderHome('none');
 }
+/** 3.3.3: delete at once, with a 5 s Undo toast (no confirm alert for a single document). */
 async function deleteDoc(d) {
-  if (!await confirmDelete(`Delete “${d.name}”?`, 'This document will be deleted from this device.')) { if (curView === 'home') renderHome('none'); return; }
-  await DB.del(d.id); if (current && current.id === d.id) current = null;
-  toast('Document deleted'); renderHome(curView === 'home' ? 'none' : 'pop');
+  const full = await DB.get(d.id) || d;
+  await DB.del(d.id); if (current && current.id === d.id) current = null; swipeRow.openRow = null;
+  renderHome(curView === 'home' ? 'none' : 'pop');
+  toast(`“${full.name}” deleted`, 'ok', { action: 'Undo', ms: 5000, onAction: async () => { await DB.put(full); toast('Document restored'); if (curView === 'home') renderHome('none'); } });
 }
 async function docActions(d) {
   const v = await menu(d.name, [
@@ -817,6 +839,7 @@ $('placeDone').onclick = async () => {
 async function renderSettings() {
   $('setFilterVal').textContent = Object.fromEntries(FILTERS)[settings.filter];
   $('setLangVal').textContent = Object.fromEntries(LANGS)[settings.lang];
+  $('setPageSizeVal').textContent = PAGE_SIZE_LABEL[settings.pageSize || 'original'];
   $('setSigVal').textContent = localStorage.getItem('signature') ? 'Saved' : 'Not set';
   try {
     const est = await navigator.storage.estimate();
@@ -831,6 +854,15 @@ $('setLangBtn').onclick = async () => {
   const v = await menu('Text Language', LANGS.map(([f, l]) => ({ label: l, value: f, checked: settings.lang === f })), 'The language used when finding text in your scans.');
   if (v) { settings.lang = v; saveSettings(); renderSettings(); }
 };
+async function pickPageSize() {
+  const v = await menu('PDF Page Size', [
+    { label: 'Original · the scan’s own shape, no margins', value: 'original', checked: (settings.pageSize || 'original') === 'original' },
+    { label: 'A4', value: 'a4', checked: settings.pageSize === 'a4' }, { label: 'Letter', value: 'letter', checked: settings.pageSize === 'letter' }],
+  'A4 and Letter turn landscape for landscape scans.');
+  if (v) { settings.pageSize = v; saveSettings(); if (curView === 'settings') renderSettings(); }
+  return v;
+}
+$('setPageSizeBtn').onclick = pickPageSize;
 $('setWipe').onclick = async () => {
   if (!await confirmDelete('Delete All Documents?', 'Every document on this device will be permanently deleted.', 'Delete All')) return;
   await DB.clear(); localStorage.removeItem('folders'); activeFolder = ''; toast('All documents deleted'); renderSettings();
@@ -921,19 +953,19 @@ async function vDetect(canvas) {
   } catch (e) { if (!isFallback(e)) throw e; const { cv } = await loadCv(); const d = Vision.detect(cv, canvas); return d && Vision.fullFrame(d.q, canvas.width, canvas.height) ? null : d; }
 }
 /** detector-v2 refinement (worker). v2 corners are used directly; v1 is kept only if v2 errors, times out (>3 s) or returns null. */
+const REFINE_TIMEOUT = 6000; // detector-v3 runs ~1 s on a laptop; slower phones get time before the v1 fallback
 async function vRefine(canvas, det) {
   if (!det) return det;
   try {
     const { c, k } = Vision.scaled(canvas, 2000);
     const bmp = await createImageBitmap(c); if (c !== canvas) Vision.free(c);
-    const r = await Promise.race([VW.call('refine', { src: bmp, q: det.q.map((p) => ({ x: p.x * k, y: p.y * k })), votes: det.votes }), sleep(3000).then(() => { throw new Error('refine timeout'); })]);
+    const r = await Promise.race([VW.call('refine', { src: bmp, q: det.q.map((p) => ({ x: p.x * k, y: p.y * k })), votes: det.votes, conf: CONF_FLAG }), sleep(REFINE_TIMEOUT).then(() => { throw new Error('refine timeout'); })]);
     bmp.close && bmp.close();
-    if (!r) return { ...det, v: 1 };
-    if (r.noPage) return { ...det, v: 1, conf: r.conf, low: true }; // v2 sees no real page edges: keep v1 corners but ask the user to check
+    if (!r) return { ...det, v: 1, low: true }; // v3 (and the v2 guard) see no page: keep v1 corners, ask the user to check
     const q = r.q.map((p) => ({ x: p.x / k, y: p.y / k }));
-    if (Vision.fullFrame(q, canvas.width, canvas.height)) return { ...det, v: 1, conf: r.conf, low: isLow(r.conf, det) }; // hard rule: v2 may not grow to the frame
-    return { ...det, q, conf: r.conf, v: 2, low: isLow(r.conf, det) };
-  } catch (e) { return { ...det, v: 1 }; }
+    if (Vision.fullFrame(q, canvas.width, canvas.height)) return { ...det, v: 1, conf: r.conf, low: true }; // hard rule: never grow to the frame
+    return { ...det, q, conf: r.conf, v: r.v, kind: r.kind, method: r.method, spine: r.spine && r.spine.map((p) => ({ x: p[0] / k, y: p[1] / k })), low: isLow(r.conf) };
+  } catch (e) { return { ...det, v: 1, low: true }; } // error / timeout: v1 outline, flagged
 }
 /** v1 detect + v2 refine: used after capture / import and by the crop editor. */
 async function vDetectBest(canvas) { return vRefine(canvas, await vDetect(canvas)); }
@@ -986,7 +1018,7 @@ async function startScan(opts = {}) {
 async function photoToCrop(file) {
   busy('Opening photo…');
   try {
-    const raw = await Vision.decode(file, 3000);
+    const raw = await Vision.decode(file); // 3.3.3: full photo resolution (was capped at 3000px)
     busy();
     // detection runs in the worker while the crop screen is already visible
     const det = vDetectBest(raw).catch(() => null);
@@ -1066,14 +1098,14 @@ async function processBatchPage(pg) {
   let raw = null;
   try {
     if (!pg.file && pg.fileP) { pg.file = await pg.fileP; pg.fileP = null; }
-    raw = await Vision.decode(pg.file, 3000); const t1 = performance.now();
+    raw = await Vision.decode(pg.file); const t1 = performance.now(); // full resolution (≤4096 / 16 MP)
     let det = null; try { det = await vDetect(raw); } catch {}
-    if (det) { pg.stage = 'refine'; updateBatchTile(pg); det = await vRefine(raw, det); pg.v = det.v; pg.low = !!det.low; pg.conf = det.conf; }
+    if (det) { pg.v1q = Vision.order(det.q).map((t) => ({ x: t.x / raw.width, y: t.y / raw.height })); pg.refT0 = performance.now(); pg.stage = 'refine'; updateBatchTile(pg); det = await vRefine(raw, det); pg.v = det.v; pg.low = !!det.low; pg.conf = det.conf; }
     const t2 = performance.now(), q = Vision.order(det ? det.q : fullCorners(raw));
     const rel = (qq) => qq.map((t) => ({ x: t.x / raw.width, y: t.y / raw.height }));
     if (pg.book && det && scan.pages.includes(pg)) {
       // Book mode: split the spread at the spine (vertical centre of the quad) → left page, then right page
-      const [qL, qR] = splitQuad(q, 0.5), spread = { quad: rel(q), t: 0.5 };
+      const t0s = spineT(q, det.spine), [qL, qR] = splitQuad(q, t0s), spread = { quad: rel(q), t: t0s }; // v3 spine (draggable later) + SPINE_TRIM
       const wl = await vWarp(raw, qL, 0.88), wr = await vWarp(raw, qR, 0.88);
       const pg2 = { id: ++batchSeq, status: 'ok', filter: pg.filter, bc: null, text: '', book: true, half: 'R', v: pg.v, low: pg.low, conf: pg.conf, auto: pg.auto,
         raw: wr.raw || wl.raw, quad: rel(qR), orig: wr.orig, found: true, spread, _thumb: burl(wr.orig) };
@@ -1120,6 +1152,7 @@ function renderBatch(scrollEnd) {
   if (scrollEnd) requestAnimationFrame(() => g.scrollTo({ top: g.scrollHeight, behavior: 'smooth' }));
 }
 function updateBatchTile(pg) {
+  if (crop.pendingPg === pg) cropPendingTick();
   if (curView === 'cam') renderTray(false);
   if (curView === 'crop') renderCropStrip();
   if (curView !== 'batch' && curView !== 'crop') return;
@@ -1177,15 +1210,84 @@ function wireTile(t, pg) {
   t.addEventListener('touchmove', (e) => { if (lifted) e.preventDefault(); }, { passive: false }); // keep the grid from scrolling mid-drag
 }
 const LOWCONF_HINT = 'Check the corners';
-/** Book mode: split a spread quad [TL,TR,BR,BL] at spine fraction t (0.5 = vertical centre) → [left, right]. */
-function splitQuad(q, t = 0.5) {
-  const L = (a, b) => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }), [TL, TR, BR, BL] = q, MT = L(TL, TR), MB = L(BL, BR);
-  return [[TL, MT, MB, BL], [MT, TR, BR, MB]];
+/** Book mode: each half stops this fraction of the spread width short of the spine, so the gutter shadow isn't kept on the page edges. */
+const SPINE_TRIM = 0.02;
+/** Split a spread quad [TL,TR,BR,BL] at spine fraction t (0.5 = vertical centre) → [left, right], trimming SPINE_TRIM each side. */
+/** 3.3.3 (Ive): the crop screen opens at once on a page whose edges are still being refined in the background.
+ *  First a 20pt spinner replaces the outline and handles; if refine runs past REFINE_SHOW_V1 ms, the v1 (live) outline is shown
+ *  and can be edited; when refine finishes, its outline replaces the v1 one — only if the user hasn't touched the crop. */
+const REFINE_SHOW_V1 = 1500;
+async function batchCropPending(pg) {
+  let f = pg.file; if (!f && pg.fileP) { try { f = await pg.fileP; } catch {} }
+  if (pg.status !== 'proc' || !f) { while (pg.status === 'proc') await sleep(60); return batchCrop(pg); }
+  let raw; try { raw = await Vision.decode(f); } catch { while (pg.status === 'proc') await sleep(60); return batchCrop(pg); }
+  if (pg.status !== 'proc' || !scan.pages.includes(pg)) { Vision.free(raw); return batchCrop(pg); }
+  const idx = scan.pages.indexOf(pg), n = scan.pages.length;
+  const o = {
+    q: fullCorners(raw), found: true, pending: true, retake: false, spine: null,
+    title: n > 1 ? `Page ${idx + 1} of ${n}` : 'Adjust Corners', doneLabel: idx === n - 1 && !pg.book ? 'Done' : 'Next', strip: { cur: pg, pair: null },
+    done: async (r, qq, info = {}) => {
+      crop.pendingPg = null;
+      if (pg.status === 'proc') { busy('Finishing auto-crop…'); while (pg.status === 'proc') await sleep(60); busy(); }
+      const rl = (x) => x.map((p) => ({ x: p.x / r.width, y: p.y / r.height })), reset = { _previews: null, _origUrl: null, _final: null, _finalF: null, _pblobs: null };
+      const pair = pg.spread ? scan.pages.filter((p) => p.spread === pg.spread) : null;
+      if (info.touched && pg.status === 'ok') {
+        busy('Straightening…');
+        try {
+          if (pair && pair.length === 2) { // the user's edit is the whole spread: split it again at the spine
+            const t = pg.spread.t, [qL, qR] = splitQuad(qq, t), sp = { quad: rl(qq), t };
+            for (const [h, qh] of [[pair[0], qL], [pair[1], qR]]) { const w = await vWarp(r, qh, 0.88); Object.assign(h, { raw: w.raw, quad: rl(qh), orig: w.orig, found: true, low: false, spread: sp, _thumb: burl(w.orig), ...reset }); }
+          } else { const w = await vWarp(r, qq, 0.88); Object.assign(pg, { raw: w.raw, quad: rl(qq), orig: w.orig, found: true, low: false, _thumb: burl(w.orig), ...reset }); }
+        } catch (e) { toast(e.message, 'err'); }
+        busy(); freeBatchUrls();
+      }
+      Vision.free(r);
+      const lastOf = pair && pair.length === 2 ? pair[1] : pg, go = scan.pages[scan.pages.indexOf(lastOf) + 1];
+      if (go) return batchCrop(go);
+      if (scan.pages.length) return batchNext();
+      show('batch', 'down'); renderBatch();
+    },
+    cancel: () => { crop.pendingPg = null; show('batch', 'down'); renderBatch(); }
+  };
+  startCrop(raw, o);
+  $('cropHint').textContent = 'Refining edges…';
+  cropPendingTick();
+}
+function cropPendingTick() {
+  const pg = crop.pendingPg;
+  if (!pg || !crop.canvas || curView !== 'crop' || !crop.opts || crop.opts.strip?.cur !== pg) return;
+  if (pg.status !== 'proc') { // refine finished
+    crop.pendingPg = null;
+    if (!crop.touched) { const c = crop.canvas; crop.opts = null; crop.canvas = null; Vision.free(c); batchCrop(pg); return; } // swap in the refined outline
+    crop.pending = false; $('cropHint').textContent = 'Drag the corners or edges to fine-tune'; drawCrop(); return; // the user's edit wins
+  }
+  if (crop.pending && pg.v1q) {
+    const left = REFINE_SHOW_V1 - (performance.now() - pg.refT0);
+    if (left <= 0) { // refine is slow: show the live / v1 outline meanwhile
+      if (!crop.touched) { crop.corners = pg.v1q.map((t) => ({ x: t.x * crop.canvas.width, y: t.y * crop.canvas.height })); crop.detQ = crop.corners.map((p) => ({ ...p })); }
+      crop.pending = false; crop.v1Shown = performance.now(); drawCrop();
+    } else { clearTimeout(cropPendingTick._t); cropPendingTick._t = setTimeout(cropPendingTick, left + 10); }
+  }
+}
+/** 3.3.3: initial spine position from detector-v3 (DetectorV3 spine ends on the top and bottom edges) as the fraction t
+ *  along the top/bottom edges; 0.5 when v3 found no book. Clamped like the draggable spine (0.2–0.8). */
+function spineT(q, spine) {
+  if (!spine || spine.length !== 2) return 0.5;
+  const [TL, TR, BR, BL] = q, s0 = spine[0].y <= spine[1].y ? spine[0] : spine[1], s1 = s0 === spine[0] ? spine[1] : spine[0];
+  if (Math.abs(s1.y - s0.y) < Math.abs(s1.x - s0.x)) return 0.5; // horizontal spine (phone sideways): not split left/right here
+  const proj = (p, a, b) => { const ex = b.x - a.x, ey = b.y - a.y; return ((p.x - a.x) * ex + (p.y - a.y) * ey) / (ex * ex + ey * ey || 1); };
+  const t = (proj(s0, TL, TR) + proj(s1, BL, BR)) / 2;
+  return Number.isFinite(t) ? Math.max(0.2, Math.min(0.8, t)) : 0.5;
+}
+function splitQuad(q, t = 0.5, trim = SPINE_TRIM) {
+  const [TL, TR, BR, BL] = q, L = (a, b, u) => ({ x: a.x + (b.x - a.x) * u, y: a.y + (b.y - a.y) * u });
+  const tl = Math.max(0.05, t - trim), tr = Math.min(0.95, t + trim);
+  return [[TL, L(TL, TR, tl), L(BL, BR, tl), BL], [L(TL, TR, tr), TR, BR, L(BL, BR, tr)]];
 }
 /** Crop editor for a scanned page. 3.3.1: filmstrip of all pages under the image — tap to jump, Next = next page, the last
  *  page's Done goes on to the filter screen. Pages are only re-warped when their corners were actually moved. */
 async function batchCrop(pg) {
-  if (pg.status === 'proc') { busy('Finishing auto-crop…'); while (pg.status === 'proc') await new Promise((r) => setTimeout(r, 60)); busy(); }
+  if (pg.status === 'proc') return batchCropPending(pg);
   if (pg.status === 'err' || !pg.raw) return toast('Couldn’t read that photo — delete it and try again', 'err');
   const idx = scan.pages.indexOf(pg); if (idx < 0) return;
   // Book-mode halves share one spread: edit the whole spread with a draggable spine, re-split both pages on Next
@@ -1245,8 +1347,14 @@ function renderCropStrip() {
     if (!crop.opts) return; const c = crop.canvas; crop.opts = null; crop.canvas = null; if (c) Vision.free(c);
     camOk() && settings.liveCam !== false ? openCam(false) : (show('batch', 'down'), renderBatch(), $('batPhotos').click());
   } }, icon('plus'));
-  box.replaceChildren(...tiles, add);
-  const cur = box.querySelector('.on'); if (cur) cur.scrollIntoView({ inline: 'center', block: 'nearest' });
+  // a Book spread (two halves of one capture, side by side) is shown as one group with a single selection border
+  const items = []; for (let i = 0; i < tiles.length; i++) {
+    const p = scan.pages[i], q2 = scan.pages[i + 1];
+    if (p.spread && q2 && q2.spread === p.spread) { const on = !!(st.pair && st.pair.includes(p)); tiles[i].classList.remove('on'); tiles[i + 1].classList.remove('on'); items.push(el('span', { class: 'grp' + (on ? ' on' : '') }, tiles[i], tiles[i + 1])); i++; }
+    else items.push(tiles[i]);
+  }
+  box.replaceChildren(...items, add);
+  const cur = box.querySelector('.grp.on, button.on'); if (cur) cur.scrollIntoView({ inline: 'center', block: 'nearest' });
 }
 async function batchLeave() {
   const n = scan.pages.length;
@@ -1275,7 +1383,9 @@ $('batPhotos').onclick = async () => { const f = await pickFiles('image/*', true
 const crop = { canvas: null, corners: null, drag: -1, disp: 1, opts: null };
 async function startCrop(canvas, opts = {}) {
   $('cropAuto').classList.toggle('hl', opts.found === false);
-  crop.canvas = canvas; crop.opts = opts; crop.touched = false; crop.spine = opts.spine != null ? opts.spine : null; crop.lastSpine = null; crop.corners = opts.q ? opts.q.map((p) => ({ ...p })) : fullCorners(canvas);
+  crop.canvas = canvas; crop.opts = opts; crop.touched = false; crop.spine = opts.spine != null ? opts.spine : null; crop.lastSpine = null; crop.bounce = null; crop.snaps = 0;
+  crop.pending = !!opts.pending; crop.pendingPg = opts.pending ? opts.strip.cur : null; $('cropSpin').hidden = !crop.pending;
+  crop.detQ = opts.found !== false && opts.q ? opts.q.map((p) => ({ ...p })) : null; crop.corners = opts.q ? opts.q.map((p) => ({ ...p })) : fullCorners(canvas);
   $('cropTitle').textContent = opts.title || 'Adjust Corners';
   $('cropHint').textContent = opts.found === false ? NOTFOUND_HINT : opts.low ? LOWCONF_HINT : 'Drag the corners or edges to fine-tune';
   $('cropHint').classList.toggle('warn', opts.found === false || !!opts.low);
@@ -1294,6 +1404,8 @@ function drawCrop() {
   const ctx = cc.getContext('2d'); ctx.drawImage(src, 0, 0);
   const rect = cc.getBoundingClientRect();
   crop.disp = rect.width ? src.width / rect.width : 1;
+  const pend = !!crop.pending && !crop.touched; $('cropSpin').hidden = !pend;
+  if (pend) return; // 3.3.3: refine still running — a 20pt spinner stands in for the outline and handles
   const q = crop.corners, d = crop.disp;
   ctx.fillStyle = 'rgba(0,0,0,.5)'; ctx.beginPath();
   ctx.rect(0, 0, cc.width, cc.height); ctx.moveTo(q[0].x, q[0].y);
@@ -1317,29 +1429,62 @@ function drawCrop() {
     ctx.lineWidth = 2 * d; ctx.strokeStyle = on ? '#fff' : '#2dd4bf'; ctx.stroke(); ctx.restore();
   }
   q.forEach((p, i) => {
-    ctx.beginPath(); ctx.arc(p.x, p.y, (crop.drag === i ? 13 : 10) * d, 0, 7);
+    const bz = crop.bounce && crop.bounce.i === i ? (() => { const u = Math.min(1, (performance.now() - crop.bounce.t0) / 300); return 1 + 0.3 * (1 - u) * (1 - u); })() : 1; // snap bounce 1.3× → 1×
+    ctx.beginPath(); ctx.arc(p.x, p.y, (crop.drag === i ? 13 : 10) * d * bz, 0, 7);
     ctx.fillStyle = '#fff'; ctx.shadowColor = 'rgba(0,0,0,.4)'; ctx.shadowBlur = 8 * d; ctx.fill(); ctx.shadowBlur = 0;
     ctx.lineWidth = 2.5 * d; ctx.strokeStyle = '#2dd4bf'; ctx.stroke();
     ctx.beginPath(); ctx.arc(p.x, p.y, 3 * d, 0, 7); ctx.fillStyle = '#2dd4bf'; ctx.fill();
   });
 }
+/** 3.3.3 loupe: a 100pt circle 120pt above the finger, 2× zoom on the point being dragged. */
+const LOUPE = { size: 100, above: 120, zoom: 2 };
 function drawLoupe(p) {
-  const L = $('loupe'), r = 80, zoom = 2.4, src = crop.canvas;
-  const ctx = L.getContext('2d'); ctx.clearRect(0, 0, 240, 240);
-  ctx.save(); ctx.beginPath(); ctx.arc(120, 120, 110, 0, 7); ctx.clip();
-  ctx.fillStyle = '#111'; ctx.fillRect(0, 0, 240, 240);
-  ctx.drawImage(src, p.x - r / zoom, p.y - r / zoom, (2 * r) / zoom, (2 * r) / zoom, 0, 0, 240, 240);
+  const L = $('loupe'), src = crop.canvas, dpr = Math.min(3, devicePixelRatio || 1), S = LOUPE.size, P = Math.round(S * dpr);
+  if (L.width !== P) { L.width = L.height = P; }
+  const ctx = L.getContext('2d'); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, P, P);
+  const half = (S / 2 / LOUPE.zoom) * crop.disp; // source px shown from the centre to the rim
+  ctx.save(); ctx.beginPath(); ctx.arc(P / 2, P / 2, P / 2 - 2 * dpr, 0, 7); ctx.clip();
+  ctx.fillStyle = '#111'; ctx.fillRect(0, 0, P, P);
+  ctx.drawImage(src, p.x - half, p.y - half, half * 2, half * 2, 0, 0, P, P);
+  // the crop outline inside the loupe, so the user sees the line meet the paper edge
+  const q = crop.corners, m = (pt) => [((pt.x - p.x) / half) * (P / 2) + P / 2, ((pt.y - p.y) / half) * (P / 2) + P / 2];
+  ctx.beginPath(); q.forEach((pt, i) => { const [x, y] = m(pt); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }); ctx.closePath();
+  ctx.strokeStyle = 'rgba(45,212,191,.9)'; ctx.lineWidth = 1.5 * dpr; ctx.stroke();
   ctx.restore();
-  ctx.strokeStyle = '#2dd4bf'; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(120, 120, 110, 0, 7); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(110, 120); ctx.lineTo(130, 120); ctx.moveTo(120, 110); ctx.lineTo(120, 130);
-  ctx.strokeStyle = 'rgba(255,255,255,.85)'; ctx.lineWidth = 2; ctx.stroke();
-  // position above the finger
+  ctx.strokeStyle = '#2dd4bf'; ctx.lineWidth = 3 * dpr; ctx.beginPath(); ctx.arc(P / 2, P / 2, P / 2 - 1.5 * dpr, 0, 7); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(P / 2 - 8 * dpr, P / 2); ctx.lineTo(P / 2 + 8 * dpr, P / 2); ctx.moveTo(P / 2, P / 2 - 8 * dpr); ctx.lineTo(P / 2, P / 2 + 8 * dpr);
+  ctx.strokeStyle = 'rgba(255,255,255,.9)'; ctx.lineWidth = 1.5 * dpr; ctx.stroke();
+  // centre 120pt above the finger (or above the point if no finger position yet); below the finger near the top edge
   const wrap = $('cropWrap').getBoundingClientRect(), cc = $('cropCanvas').getBoundingClientRect();
-  const sx = cc.left + p.x / crop.disp, sy = cc.top + p.y / crop.disp;
-  let lx = sx - wrap.left - 60, ly = sy - wrap.top - 150;
-  if (ly < 8) ly = sy - wrap.top + 40; // finger near the top: show the loupe below it so it never hides the corner
-  lx = Math.max(8, Math.min(wrap.width - 128, lx)); ly = Math.max(8, Math.min(wrap.height - 140, ly));
-  L.style.transform = `translate(${lx}px,${ly}px)`; L.classList.add('on');
+  const f = crop.finger || { x: cc.left + p.x / crop.disp, y: cc.top + p.y / crop.disp };
+  let cx = f.x - wrap.left, cy = f.y - wrap.top - LOUPE.above;
+  if (f.y - LOUPE.above - S / 2 < 4) cy = f.y - wrap.top + LOUPE.above * 0.6;
+  cx = Math.max(S / 2 + 4, Math.min(wrap.width - S / 2 - 4, cx));
+  L.style.transform = `translate(${cx - S / 2}px,${cy - S / 2}px)`; L.classList.add('on');
+}
+/** 3.3.3 edge snap: on release, a dragged corner snaps to where its two paper edges meet
+ *  (detector-v2 edge fit) within SNAP_PT, else to the detected corner within 8pt; the handle bounces 1.3× → 1×. No haptic. */
+const SNAP_PT = 14, SNAP_THR = 0.3; // search radius (pt); min detector-v2 edge quality of both sides meeting at the corner
+async function snapCorner(i) {
+  const p0 = crop.corners[i], lim = SNAP_PT * crop.disp;
+  let best = null, t0 = performance.now();
+  {
+    // detector-v2 edge refinement around the user's outline: the dragged corner goes to where its two paper edges meet
+    try {
+      const src = crop.canvas, { c, k } = Vision.scaled(src, 2000), bmp = await createImageBitmap(c); if (c !== src) Vision.free(c);
+      const r = await Promise.race([VW.call('snap', { src: bmp, q: crop.corners.map((p) => ({ x: p.x * k, y: p.y * k })) }), sleep(1500).then(() => null)]); bmp.close && bmp.close();
+      const qa = r && r.quality ? Math.min(r.quality[i], r.quality[(i + 3) % 4]) : 0; // the two sides that meet at corner i
+      if (r && qa >= SNAP_THR) { const t = { x: r.q[i].x / k, y: r.q[i].y / k }; if (Math.hypot(t.x - p0.x, t.y - p0.y) < lim) best = t; }
+    } catch (e) {}
+  }
+  if (!best) { let bd = 8 * crop.disp; for (const t of crop.detQ || []) { const d = Math.hypot(t.x - p0.x, t.y - p0.y); if (d < bd) { bd = d; best = { ...t }; } } } // else: the detected corner, if within 8pt
+  crop.snapMs = performance.now() - t0;
+  if (!best || Math.hypot(best.x - p0.x, best.y - p0.y) < 1.5 * crop.disp) return false; // nothing near, or already on it
+  if (crop.drag >= 0 || crop.corners[i] !== p0) return false; // the user grabbed it again meanwhile
+  const nq = crop.corners.map((t, j) => (j === i ? clampPt(best, crop.canvas) : t)); if (!quadValid(nq)) return false;
+  crop.corners = nq; crop.bounce = { i, t0: performance.now() }; crop.snaps = (crop.snaps || 0) + 1;
+  const anim = () => { if (!crop.canvas || !crop.bounce) return; drawCrop(); if (performance.now() - crop.bounce.t0 < 320) requestAnimationFrame(anim); else { crop.bounce = null; drawCrop(); } };
+  requestAnimationFrame(anim); return true;
 }
 function canvasPoint(e) { const cc = $('cropCanvas'), r = cc.getBoundingClientRect(); return { x: (e.clientX - r.left) * (cc.width / r.width), y: (e.clientY - r.top) * (cc.height / r.height) }; }
 // Hit targets: corners (index 0-3) and edge midpoints (4-7, edge k joins corner k and k+1). ≥44pt each.
@@ -1362,20 +1507,20 @@ function quadValid(q) {
 }
 const clampPt = (p, c) => ({ x: Math.max(0, Math.min(c.width, p.x)), y: Math.max(0, Math.min(c.height, p.y)) });
 $('cropCanvas').addEventListener('pointerdown', (e) => {
-  if (!crop.canvas) return;
+  if (!crop.canvas || (crop.pending && !crop.touched)) return;
   const p = canvasPoint(e), q = crop.corners; let best = -1, bd = 34 * crop.disp; // 68pt-wide corner targets
   q.forEach((c, i) => { const d = Math.hypot(c.x - p.x, c.y - p.y); if (d < bd) { bd = d; best = i; } });
   if (best < 0) { bd = 30 * crop.disp; for (let k = 0; k < 4; k++) { const m = edgeMid(q, k), d = Math.hypot(m.x - p.x, m.y - p.y); if (d < bd) { bd = d; best = 4 + k; } } }
   if (crop.spine != null) { const m = spineMid(q, crop.spine), d = Math.hypot(m.x - p.x, m.y - p.y), dm = 30 * crop.disp;
     if (d < dm && (best < 0 || best >= 4)) best = 8; else if (best < 0) { const [a, b] = spineLine(q, crop.spine), ex = b.x - a.x, ey = b.y - a.y, L2 = ex * ex + ey * ey || 1, u = Math.max(0, Math.min(1, ((p.x - a.x) * ex + (p.y - a.y) * ey) / L2)); if (Math.hypot(a.x + ex * u - p.x, a.y + ey * u - p.y) < 22 * crop.disp) best = 8; } }
   crop.drag = best; if (best < 0) return;
-  crop.touched = true; crop.start = { p, q: q.map((t) => ({ ...t })), t: crop.spine };
+  crop.touched = true; crop.start = { p, q: q.map((t) => ({ ...t })), t: crop.spine }; crop.finger = { x: e.clientX, y: e.clientY };
   e.target.setPointerCapture(e.pointerId); haptic(); drawCrop(); drawLoupe(dragPoint());
 });
 const dragPoint = () => (crop.drag === 8 ? spineMid(crop.corners, crop.spine) : crop.drag < 4 ? crop.corners[crop.drag] : edgeMid(crop.corners, crop.drag - 4));
 $('cropCanvas').addEventListener('pointermove', (e) => {
   if (crop.drag < 0 || !crop.canvas) return;
-  const p = canvasPoint(e), c = crop.canvas, s = crop.start;
+  const p = canvasPoint(e), c = crop.canvas, s = crop.start; crop.finger = { x: e.clientX, y: e.clientY };
   if (crop.drag === 8) { // spine: slide along the spread's width (average of top and bottom edges), kept between 20% and 80%
     const q = crop.corners, ux = (q[1].x - q[0].x + q[2].x - q[3].x) / 2, uy = (q[1].y - q[0].y + q[2].y - q[3].y) / 2, L2 = ux * ux + uy * uy || 1;
     crop.spine = crop.lastSpine = Math.max(0.2, Math.min(0.8, s.t + ((p.x - s.p.x) * ux + (p.y - s.p.y) * uy) / L2));
@@ -1398,7 +1543,7 @@ $('cropCanvas').addEventListener('pointermove', (e) => {
   if (!quadValid(nq)) return; // refuse moves that would fold the frame; the handle just stops
   crop.corners = nq; drawCrop(); drawLoupe(dragPoint());
 });
-['pointerup', 'pointercancel'].forEach((t) => $('cropCanvas').addEventListener(t, () => { crop.drag = -1; $('loupe').classList.remove('on'); if (crop.canvas) drawCrop(); }));
+['pointerup', 'pointercancel'].forEach((t) => $('cropCanvas').addEventListener(t, (e) => { const was = crop.drag; crop.drag = -1; crop.finger = null; $('loupe').classList.remove('on'); if (!crop.canvas) return; drawCrop(); if (t === 'pointerup' && was >= 0 && was < 4) snapCorner(was); }));
 $('cropReset').onclick = () => { crop.corners = fullCorners(crop.canvas); crop.touched = true; drawCrop(); $('cropHint').textContent = 'No crop · the whole photo is used'; haptic(); };
 $('cropAuto').onclick = async () => {
   $('crop').classList.add('finding'); $('cropHint').textContent = 'Finding edges…';
@@ -1626,19 +1771,32 @@ $('ocrBack').onclick = () => (openOcr.only != null ? (show('page', 'pop'), openP
 // ---------- PDF ----------
 const ensureJsPdf = () => loadScript('vendor/jspdf.umd.min.js').then(() => window.jspdf);
 /** Fast PDF: JPEG pages are embedded as-is (no canvas re-encode); other images are converted once. */
-async function imagesToPdfBlob(blobs, small) {
+/** 3.3.3 PDF export.
+ *  Quality: Best = the page JPEG as stored (full resolution, q 0.92); Small = long side SMALL_PDF_LONG at q 0.72.
+ *  Page size: 'original' (default) = each page has the scan's own aspect ratio (no blank margins), sized to the area of an A4 sheet;
+ *  'a4' / 'letter' = that paper, turned landscape for landscape scans, image fitted and centred. */
+const SMALL_PDF_LONG = 2000;
+const PAGE_SIZES = { a4: [595.28, 841.89], letter: [612, 792] };
+const PAGE_SIZE_LABEL = { original: 'Original', a4: 'A4', letter: 'Letter' };
+async function imagesToPdfBlob(blobs, small, size = settings.pageSize || 'original') {
   const { jsPDF } = await ensureJsPdf();
-  const pdf = new jsPDF({ unit: 'pt', format: 'a4', compress: false });
-  const W = pdf.internal.pageSize.getWidth(), H = pdf.internal.pageSize.getHeight();
+  let pdf = null; const info = [];
   for (let i = 0; i < blobs.length; i++) {
     let b = blobs[i], iw, ih;
-    if (small) { const c = await blobToCanvas(b, 1600); iw = c.width; ih = c.height; b = await canvasToBlob(c, 0.68); Vision.free(c); }
-    else if (b.type !== 'image/jpeg') { const c = await blobToCanvas(b, 2600); iw = c.width; ih = c.height; b = await canvasToBlob(c, 0.9); Vision.free(c); }
+    if (small) { const c = await blobToCanvas(b, SMALL_PDF_LONG); iw = c.width; ih = c.height; b = await canvasToBlob(c, 0.72); Vision.free(c); }
+    else if (b.type !== 'image/jpeg') { const c = await blobToCanvas(b); iw = c.width; ih = c.height; b = await canvasToBlob(c, 0.92); Vision.free(c); }
     else { const bmp = await createImageBitmap(b); iw = bmp.width; ih = bmp.height; bmp.close(); }
+    const land = iw > ih;
+    let W, H;
+    if (PAGE_SIZES[size]) { const [a, c] = PAGE_SIZES[size]; [W, H] = land ? [c, a] : [a, c]; }
+    else { const k = Math.sqrt((595.28 * 841.89) / (iw * ih)); W = iw * k; H = ih * k; } // scan's own aspect, A4-sized area
+    const fmt = [W, H], orient = W > H ? 'l' : 'p';
+    if (!pdf) pdf = new jsPDF({ unit: 'pt', format: fmt, orientation: orient, compress: false }); else pdf.addPage(fmt, orient);
     const s = Math.min(W / iw, H / ih), w = iw * s, h = ih * s;
-    if (i) pdf.addPage();
     pdf.addImage(new Uint8Array(await b.arrayBuffer()), 'JPEG', (W - w) / 2, (H - h) / 2, w, h, undefined, 'NONE');
+    info.push({ px: [iw, ih], pt: [+W.toFixed(1), +H.toFixed(1)], ppi: Math.round(iw / (w / 72)), bytes: b.size });
   }
+  imagesToPdfBlob.last = info;
   return pdf.output('blob');
 }
 const safeName = (n) => n.replace(/[^\w\- ]+/g, ' ').replace(/\s+/g, ' ').trim() || 'Document';
@@ -1687,10 +1845,15 @@ addEventListener('load', () => setTimeout(() => idle(async () => {
 // ---------- 3.3: Share sheet with size choice ----------
 async function shareMenu(doc, n = doc.pages.length) {
   const bytes = doc.pages.reduce((a, p) => a + (p.img ? p.img.size : 0), 0);
-  return menu('Share', [
-    { label: `PDF · Best quality (${docSize(bytes)})`, value: 'pdf', icon: 'pdf' },
-    { label: 'PDF · Small file (for WhatsApp, email)', value: 'small', icon: 'compress' },
-    { label: n > 1 ? 'Images (JPG)' : 'Image (JPG)', value: 'jpg', icon: 'photo' }]);
+  for (;;) {
+    const v = await menu('Share', [
+      { label: `PDF · Best quality (${docSize(bytes)})`, value: 'pdf', icon: 'pdf' },
+      { label: 'PDF · Small file (for WhatsApp, email)', value: 'small', icon: 'compress' },
+      { label: n > 1 ? 'Images (JPG)' : 'Image (JPG)', value: 'jpg', icon: 'photo' },
+      { label: `Page size · ${PAGE_SIZE_LABEL[settings.pageSize || 'original']}`, value: 'size', icon: 'docs' }]);
+    if (v !== 'size') return v;
+    if (!await pickPageSize()) return null;
+  }
 }
 
 // ---------- 3.3: Multi-select documents (home) ----------

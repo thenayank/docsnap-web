@@ -42,7 +42,8 @@ async function camStart() {
   if (CAM.stream || CAM.starting) return CAM.starting;
   CAM.starting = (async () => {
     const v = $('camVideo');
-    const want = CAM.hd ? { width: { ideal: 3840 }, height: { ideal: 2160 } } : { width: { ideal: 1920 }, height: { ideal: 1080 } };
+    // 3.3.3: ask for the sensor's full 4:3 frame (pages are ~4:3; a 16:9 4K stream crops the sensor). The browser picks its max.
+    const want = CAM.hd ? { width: { ideal: 4032 }, height: { ideal: 3024 }, aspectRatio: { ideal: 4 / 3 } } : { width: { ideal: 1920 }, height: { ideal: 1440 } };
     let s = null, err = null;
     for (const c of [{ facingMode: { ideal: 'environment' }, ...want }, { facingMode: { ideal: 'environment' } }, true]) {
       try { s = await navigator.mediaDevices.getUserMedia({ video: c, audio: false }); break; }
@@ -56,6 +57,8 @@ async function camStart() {
     let caps = {}; try { caps = CAM.track.getCapabilities ? CAM.track.getCapabilities() : {}; } catch {}
     $('camTorch').hidden = !caps.torch; CAM.torch = false;
     if (caps.focusMode && caps.focusMode.includes('continuous')) CAM.track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }).catch(() => {});
+    // full-resolution stills where the browser can take them (ImageCapture: Chrome/Android); otherwise the video frame
+    CAM.ic = null; try { if (CAM.hd && typeof ImageCapture === 'function') CAM.ic = new ImageCapture(CAM.track); } catch {}
     const st = CAM.track.getSettings ? CAM.track.getSettings() : {};
     CAM.res = `${st.width || v.videoWidth}×${st.height || v.videoHeight}`;
     camChrome(); camMsg('Looking for page…');
@@ -89,7 +92,7 @@ function camLoop(now) {
   // detection: throttled, one frame in flight, small frame reused
   if (!CAM.inflight && now - CAM.lastDet > 110 && !CAM.shooting) {
     CAM.lastDet = now; CAM.inflight = true;
-    const L = 960, s = Math.min(1, L / Math.max(v.videoWidth, v.videoHeight));
+    const L = 720, s = Math.min(1, L / Math.max(v.videoWidth, v.videoHeight)); // 3.3.3: detector-v3 live outline on a 720px frame
     const c = CAM.small || (CAM.small = document.createElement('canvas'));
     const w = Math.round(v.videoWidth * s), h = Math.round(v.videoHeight * s);
     if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
@@ -160,7 +163,9 @@ async function camShoot(auto) {
     const tc = document.createElement('canvas'), ts = 240 / Math.max(c.width, c.height); tc.width = Math.round(c.width * ts); tc.height = Math.round(c.height * ts);
     tc.getContext('2d').drawImage(c, 0, 0, tc.width, tc.height);
     const thumb = tc.toDataURL('image/jpeg', 0.7); tc.width = tc.height = 0;
-    const fileP = canvasToBlob(c, 0.92).then((blob) => { Vision.free(c); return new File([blob], `scan-${Date.now()}.jpg`, { type: 'image/jpeg' }); });
+    const frameP = () => canvasToBlob(c, 0.92);
+    const fileP = (CAM.ic ? Promise.race([CAM.ic.takePhoto(), sleep(2500).then(() => null)]).catch(() => null).then(async (ph) => (ph && ph.size > 50000 ? ph : frameP())) : frameP())
+      .then((blob) => { Vision.free(c); return new File([blob], `scan-${Date.now()}.jpg`, { type: blob.type || 'image/jpeg' }); });
     if (CAM.replace) {
       const file = await fileP; // retake of one page from the grid / crop editor
       const pg = CAM.replace; CAM.replace = null;
@@ -203,7 +208,8 @@ function renderTray(bump) {
   const last = scan.pages.slice(-3);
   if (!n) { tray.replaceChildren(icon('photos')); tray.setAttribute('aria-label', 'Import from Photos'); }
   else {
-    tray.replaceChildren(...last.map((p) => el('img', { src: p._thumb || '', alt: '' })), el('span', { class: 'pn' }, String(n)));
+    tray.replaceChildren(...last.map((p) => el('img', { src: p._thumb || '', alt: '', class: p.status === 'proc' ? 'shim' : '' })), // 3.3.3: shimmer while edges refine in the background
+       el('span', { class: 'pn' }, String(n)));
     tray.setAttribute('aria-label', `Page ${n}. Tap to retake it`);
   }
   $('camDone').disabled = !n; const b = $('camBadge'); b.hidden = !n; b.textContent = n; $('camDoneN').hidden = !n; $('camDone').setAttribute('aria-label', n ? `Done, ${plural(n, 'page')}` : 'Done');

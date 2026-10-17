@@ -336,7 +336,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;margin-top:-12px
 .rowc img{width:66px;height:86px;border-radius:6px;object-fit:cover;object-position:top}
 .swipe + .swipe .rowc::before{left:94px}
 .cropwrap{position:relative}
-#loupe{position:absolute;left:0;top:0;width:120px;height:120px;border-radius:50%;pointer-events:none;opacity:0;transition:opacity .12s;box-shadow:0 8px 24px rgba(0,0,0,.5);z-index:5}
+#loupe{position:absolute;left:0;top:0;width:100px;height:100px;border-radius:50%;pointer-events:none;opacity:0;transition:opacity .12s;box-shadow:0 8px 24px rgba(0,0,0,.5);z-index:5}
 #loupe.on{opacity:1}
 .banner{margin:2px 16px 0;text-align:center;font-size:13px;color:rgba(255,255,255,.75);background:rgba(255,255,255,.08);border-radius:10px;padding:8px 12px}
 .revwrap{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;padding:14px 20px 6px;position:relative;touch-action:pan-y}
@@ -439,8 +439,8 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;margin-top:-12px
 .tray:active{transform:scale(.92)}
 .tray .i{width:26px;height:26px}
 .tray img{position:absolute;width:44px;height:58px;object-fit:cover;border-radius:8px;border:1.5px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.45);left:8px;top:6px;transition:transform .3s var(--spring)}
-.tray img:nth-last-child(2){transform:translate(-4px,-4px)}
-.tray img:nth-last-child(3){transform:translate(-8px,-8px)}
+.tray img:nth-last-of-type(2){transform:translate(-4px,-4px)}
+.tray img:nth-last-of-type(3){transform:translate(-8px,-8px)}
 .tray .pn{position:absolute;left:6px;bottom:4px;min-width:20px;height:20px;padding:0 5px;border-radius:10px;background:rgba(0,0,0,.65);font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;z-index:2}
 .traydel{position:absolute;top:-10px;right:-10px;width:44px;height:44px;display:flex;align-items:center;justify-content:center;z-index:3}
 .traydel::before{content:'';position:absolute;width:24px;height:24px;border-radius:12px;background:#ff3b30;box-shadow:0 1px 4px rgba(0,0,0,.4)}
@@ -564,3 +564,37 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;margin-top:-12px
 .camdone:disabled{opacity:1;background:rgba(255,255,255,.14);color:rgba(255,255,255,.4)}
 .camdone{min-width:96px}
 .batv .bt.proc img{opacity:.5;filter:blur(1px)}
+
+/* ---------- 3.3.3 polish (Ive / Vision) ---------- */
+/* one status pill style for 'Looking for page…' / 'Captured' / 'Book mode on': black 50%, 28pt, 12pt side padding, 13pt semibold */
+.campillmsg,.bookcap{height:28px;line-height:28px;padding:0 12px;border-radius:14px;font-size:13px;font-weight:600;color:#fff;background:rgba(0,0,0,.5);-webkit-backdrop-filter:blur(20px);backdrop-filter:blur(20px);white-space:nowrap}
+.bookcap{left:50%;right:auto;transform:translateX(-50%);width:max-content;top:calc(56px + var(--sat))}
+/* tray: page-count badge 4pt inside the front thumbnail's bottom-left corner (front thumb = 44x58 at 8,6) */
+.tray .pn{left:12px;bottom:10px;min-width:20px;height:20px}
+/* filmstrip: a Book spread is one selected group — a single 2pt teal border around both thumbs, 4pt apart */
+.cropstrip .grp{display:flex;gap:4px;padding:2px;border-radius:10px;flex:0 0 auto}
+.cropstrip .grp.on{outline:2px solid var(--accent);outline-offset:2px}
+.cropstrip .grp button.on{outline:none}
+/* dark mode number badges: white 20% fill, white text */
+@media (prefers-color-scheme:dark){
+  /* the backdrop darkening keeps white text legible where the badge sits over a white page */
+  .batv .bt .num,.cropstrip .n{background:rgba(255,255,255,.2);color:#fff;-webkit-backdrop-filter:blur(8px) brightness(.45);backdrop-filter:blur(8px) brightness(.45)}
+}
+/* light mode shutter: #AEAEB2 ring + soft shadow; dark unchanged */
+@media (prefers-color-scheme:light){
+  .batv .batbar .shutter{border-color:#aeaeb2;box-shadow:0 2px 8px rgba(0,0,0,.15)}
+}
+/* 3.3.3 swipe rows: actions are painted only while swiping / open, and the pressed row stays opaque (the old translucent
+   :active fill let the red/grey actions flash through on every tap) */
+.swipe .sacts{visibility:hidden}
+.swipe.reveal .sacts,.swipe.swiping .sacts,.swipe.open .sacts{visibility:visible}
+.rowc:active{background:linear-gradient(var(--fill2),var(--fill2)),var(--bg2)}
+/* toast with an action (Undo) */
+.toast.act{padding-right:6px}
+.toast.act.show{pointer-events:auto}
+.toast .tact{margin-left:6px;height:32px;padding:0 12px;border-radius:16px;color:#2dd4bf;font-weight:600;font-size:15px;background:rgba(255,255,255,.08)}
+/* 3.3.3 background refine: shimmer on the tray thumbnail; 20pt spinner on the crop image instead of the handles */
+.tray img.shim{-webkit-mask-image:linear-gradient(105deg,#000 35%,rgba(0,0,0,.55) 50%,#000 65%);mask-image:linear-gradient(105deg,#000 35%,rgba(0,0,0,.55) 50%,#000 65%);-webkit-mask-size:300% 100%;mask-size:300% 100%;animation:trayshim 1.2s linear infinite}
+@keyframes trayshim{from{-webkit-mask-position:100% 0;mask-position:100% 0}to{-webkit-mask-position:-50% 0;mask-position:-50% 0}}
+.cropspin{position:absolute;left:50%;top:50%;width:20px;height:20px;margin:-10px 0 0 -10px;border-radius:50%;border:2.5px solid rgba(255,255,255,.35);border-top-color:#fff;animation:sp .8s linear infinite;z-index:4;pointer-events:none;box-sizing:border-box;background:rgba(0,0,0,.45);box-shadow:0 0 0 8px rgba(0,0,0,.45)}
+.cropspin[hidden]{display:none}
