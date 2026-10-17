@@ -33,14 +33,24 @@ const OPS = {
     return { blob: await jpeg(o, quality || 0.92), w: o.width, h: o.height };
   },
   // live camera: small frame (~500px long side) → corners; the frame canvas is reused between calls
-  async detectLive({ src, conf: CONF_FLAG = 0.4, strong: V1_STRONG = 0.3 }) {
-    let c = self._liveC; if (!c || c.width !== src.width || c.height !== src.height) c = self._liveC = new OffscreenCanvas(src.width, src.height);
-    c.getContext('2d').drawImage(src, 0, 0); src.close && src.close();
-    const t = performance.now(), d = Vision.detect(cv, c);
+  async detectLive({ src, conf: CONF_FLAG = 0.4, book = false }) {
+    // 3.3.2: frames arrive at ~960px. v1 runs on a 480px copy (speed); v2's confidence is taken on the 960px frame, because
+    // at 480px it under-rates real pages (pure-v2 gate would hide 'Page found' on most real books and covers)
+    let F = self._liveF; if (!F || F.width !== src.width || F.height !== src.height) F = self._liveF = new OffscreenCanvas(src.width, src.height);
+    F.getContext('2d').drawImage(src, 0, 0); src.close && src.close();
+    const f = Math.min(1, 480 / Math.max(F.width, F.height)), w4 = Math.round(F.width * f), h4 = Math.round(F.height * f);
+    let c = self._liveC; if (!c || c.width !== w4 || c.height !== h4) c = self._liveC = new OffscreenCanvas(w4, h4);
+    c.getContext('2d').drawImage(F, 0, 0, w4, h4);
+    const t = performance.now(), d0 = Vision.detect(cv, c);
+    const d = d0 && { ...d0, q: d0.q.map((p) => ({ x: p.x / f, y: p.y / f })) };
     // live gate (3.3.1): the outline only shows for a confident, edge-supported, not-frame-sized quad
     // + hard full-frame rule (never 'Page found' on a > FRAME_MAX quad, whatever the confidence) + v2 confidence ≥ CONF_FLAG
-    let ok = d && d.score >= 0.2 && d.meta.support >= 0.5 && d.meta.qa <= 0.85 && !Vision.fullFrame(d.q, c.width, c.height), conf = null;
-    if (ok) { try { const r = DetectorV2.refineFrom(c, { q: d.q, votes: d.votes }); conf = r ? r.confidence : 0; if (!r || r.noPage || (conf < CONF_FLAG && d.score < V1_STRONG)) ok = false; } catch (e) { conf = null; } }
+    let ok = d && d.score >= 0.2 && d.meta.support >= 0.5 && d.meta.qa <= 0.85 && !Vision.fullFrame(d.q, F.width, F.height), conf = null;
+    if (ok) { try { const r = DetectorV2.refineFrom(F, { q: d.q, votes: d.votes }); conf = r ? r.confidence : 0; if (!r || r.noPage || !(conf >= CONF_FLAG)) ok = false; } catch (e) { conf = null; } }
+    // Book mode (3.3.2 stop-gap until Shuri's spread detector): the outline must look like an open spread (wider than tall,
+    // or found by the book merge) — otherwise no 'Page found' and no auto-capture on a bad outline
+    if (ok && book) { const q = d.q, w = (Math.hypot(q[1].x - q[0].x, q[1].y - q[0].y) + Math.hypot(q[2].x - q[3].x, q[2].y - q[3].y)) / 2, h = (Math.hypot(q[3].x - q[0].x, q[3].y - q[0].y) + Math.hypot(q[2].x - q[1].x, q[2].y - q[1].y)) / 2;
+      if (!(/^book/.test(d.method || '') || (w / h > 1.15 && w / h < 2.6))) return { q: null, conf, notBook: true, ms: performance.now() - t }; }
     return ok ? { q: d.q, votes: d.votes, score: d.score, conf, ms: performance.now() - t } : { q: null, conf, ms: performance.now() - t };
   },
   // detector-v2 corner refinement on a v1 result (after capture / import)

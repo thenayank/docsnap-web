@@ -421,7 +421,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;margin-top:-12px
 .camtop #camTorch:not([hidden])+.ghost{display:none}
 .camtop .round.on{background:rgba(255,204,0,.92);color:#000}
 .campill{display:flex;align-items:center;height:36px;border-radius:18px;padding:0 4px}
-.campill button{height:36px;min-width:44px;padding:0 12px;font-size:14px;font-weight:600;color:rgba(255,255,255,.62);letter-spacing:.2px;display:flex;align-items:center;justify-content:center;transition:color .2s}
+.campill button{height:36px;min-width:44px;padding:0 12px;font-size:14px;font-weight:600;color:rgba(255,255,255,.6);letter-spacing:.2px;display:flex;align-items:center;justify-content:center;transition:color .2s}
 .campill button .i{width:18px;height:18px}
 .campill button.on{color:#fff}
 .campill .sep{width:1px;height:16px;background:rgba(255,255,255,.22)}
@@ -501,7 +501,8 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;margin-top:-12px
 /* ---------- 3.3.1 crop screen (theme-aware, filmstrip) — matches docsnap-design/mockups/crop ---------- */
 .cropv{background:var(--bg)}
 .cropv .nav .nbtn{color:var(--accent)}
-.cropv .cropwrap{margin:16px 20px 0;padding:0;border-radius:12px;background:#636366;overflow:hidden}
+.cropv .cropwrap{margin:0;padding:16px;background:none;overflow:visible}
+.cropv .cropwrap canvas{border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,.18)}
 #cropHint.crophint{align-self:center;margin:12px auto 0;min-width:256px;max-width:calc(100% - 40px);height:24px;line-height:24px;padding:0 14px;border-radius:12px;background:var(--bg2);text-align:center;font-size:13px;color:var(--label);opacity:.9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #cropHint.crophint.warn{color:#ff9f0a;font-weight:600;opacity:1}
 .cropstrip{display:flex;gap:8px;justify-content:center;align-items:center;height:80px;margin-top:12px;padding:0 16px;background:var(--bg2);border-top:.5px solid var(--sep);overflow-x:auto;scrollbar-width:none}
@@ -521,7 +522,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;margin-top:-12px
 .croptb .tb.hl,#cropAuto.hl{color:var(--accent)}
 .bt .odot{position:absolute;left:8px;top:8px;width:12px;height:12px;border-radius:6px;background:#ff9f0a;box-shadow:0 0 0 2px #1c1c1e;z-index:2}
 /* camera Book toggle + caption */
-.campill button.book{gap:5px;margin-left:2px;height:28px;padding:0 10px;border-radius:14px;color:rgba(255,255,255,.62)}
+.campill button.book{gap:5px;margin-left:2px;height:28px;padding:0 10px;border-radius:14px;color:rgba(255,255,255,.6)}
 .campill button.book .i{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.7}
 .campill button.book i{width:8px;height:8px;border-radius:4px;background:currentColor;display:none}
 .campill button.book.on{background:#2dd4bf;color:#00332e}
@@ -544,3 +545,22 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;margin-top:-12px
 .batv .batbar .shutter{border-color:var(--accent)}
 .batv .batbar .shutter span{background:var(--accent)}
 @media (prefers-color-scheme:dark){.batv .bt img{box-shadow:0 6px 22px rgba(0,0,0,.55)}.batv .batbar .shutter{border-color:#fff}.batv .batbar .shutter span{background:#fff}}
+/* ---------- 3.3.2 (Vision + Ive QC) ---------- */
+/* grid: each page aspect-fit inside its card with 8pt padding (never crops the page top); 24pt badge 8pt inside the corner */
+.batv .bt{padding:8px;overflow:visible}
+.batv .bt img{width:100%;height:100%;max-width:none;max-height:none;object-fit:contain;background:transparent;box-shadow:none;filter:drop-shadow(0 3px 8px rgba(0,0,0,.22));border-radius:3px}
+.batv .bt .num{left:8px;bottom:8px;min-width:24px;height:24px;border-radius:12px;padding:0 7px}
+/* grid ✕: 28pt visual, 44pt hit area, visual 4pt inside the card corner */
+.batv .bt .del{top:-4px;right:-4px;width:44px;height:44px}
+.batv .bt .del span{width:28px;height:28px;border-radius:14px}
+.batv .bt .del .i{width:14px;height:14px}
+/* one shutter style everywhere: white circle + 4pt ring (#C7C7CC ring in light) */
+.batv .batbar .shutter{border-color:#c7c7cc}
+.batv .batbar .shutter span{background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.18)}
+@media (prefers-color-scheme:dark){.batv .batbar .shutter{border-color:#fff}}
+/* camera Done: 'Done (n)' in the button, no red badge; disabled = white text at 40% */
+.camdone b{position:static;min-width:0;height:auto;padding:0;border-radius:0;background:none;color:inherit;font-size:inherit;display:inline;box-shadow:none}
+.camdone b.bump{animation:none}
+.camdone:disabled{opacity:1;background:rgba(255,255,255,.14);color:rgba(255,255,255,.4)}
+.camdone{min-width:96px}
+.batv .bt.proc img{opacity:.5;filter:blur(1px)}

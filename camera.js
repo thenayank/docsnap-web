@@ -7,7 +7,8 @@
 const Detector = {
   async live(canvas) {
     const bmp = await createImageBitmap(canvas);
-    const r = await VW.call('detectLive', { src: bmp, conf: CONF_FLAG, strong: V1_STRONG }, [bmp], -1);
+    const r = await VW.call('detectLive', { src: bmp, conf: CONF_FLAG, book: !!settings.book }, [bmp], -1);
+    CAM.notBook = !!(r && r.notBook); CAM.lastLive = r && { conf: r.conf, q: !!r.q, notBook: !!r.notBook };
     return r && r.q && !Vision.fullFrame(r.q, canvas.width, canvas.height) ? { q: r.q, conf: r.conf, ms: r.ms } : null;
   },
   async still(canvas) { const d = await vDetectBest(canvas); return d ? { q: d.q, conf: d.conf } : null; },
@@ -88,7 +89,7 @@ function camLoop(now) {
   // detection: throttled, one frame in flight, small frame reused
   if (!CAM.inflight && now - CAM.lastDet > 110 && !CAM.shooting) {
     CAM.lastDet = now; CAM.inflight = true;
-    const L = 480, s = L / Math.max(v.videoWidth, v.videoHeight);
+    const L = 960, s = Math.min(1, L / Math.max(v.videoWidth, v.videoHeight));
     const c = CAM.small || (CAM.small = document.createElement('canvas'));
     const w = Math.round(v.videoWidth * s), h = Math.round(v.videoHeight * s);
     if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
@@ -107,7 +108,7 @@ function onLive(d, w, h) {
   CAM.stats.n++; if (d) CAM.stats.ms += d.ms || 0;
   const v = $('camVideo'), sx = v.videoWidth / w, sy = v.videoHeight / h;
   if (!d) {
-    if (++CAM.miss >= 2) { CAM.q = null; CAM.hist = []; if (CAM.armQ) disarm(); if (CAM.miss > 3) CAM.cool = null; if (!CAM.shooting && !CAM.capMsg) camMsg('Looking for page…'); }
+    if (++CAM.miss >= 2) { CAM.q = null; CAM.hist = []; if (CAM.armQ) disarm(); if (CAM.miss > 3) CAM.cool = null; if (!CAM.shooting && !CAM.capMsg) camMsg(settings.book ? (CAM.notBook ? 'Fit the open book in the frame' : 'Looking for book…') : 'Looking for page…'); }
     return;
   }
   CAM.miss = 0;
@@ -205,7 +206,7 @@ function renderTray(bump) {
     tray.replaceChildren(...last.map((p) => el('img', { src: p._thumb || '', alt: '' })), el('span', { class: 'pn' }, String(n)));
     tray.setAttribute('aria-label', `Page ${n}. Tap to retake it`);
   }
-  $('camDone').disabled = !n; const b = $('camBadge'); b.hidden = !n; b.textContent = n;
+  $('camDone').disabled = !n; const b = $('camBadge'); b.hidden = !n; b.textContent = n; $('camDoneN').hidden = !n; $('camDone').setAttribute('aria-label', n ? `Done, ${plural(n, 'page')}` : 'Done');
   if (bump) { b.classList.remove('bump'); void b.offsetWidth; b.classList.add('bump'); }
 }
 async function camRemoveLast(retake) {

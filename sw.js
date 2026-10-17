@@ -1,4 +1,4 @@
-const VERSION = 'docsnap-v10';
+const VERSION = 'docsnap-v11';
 const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'vision.js', 'cvworker.js', 'detector-v2.js', 'manifest.webmanifest',
   'tools.js', 'camera.js', 'seg.html', 'seg.js', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png'];
 // Heavy engines are fetched in the background after install so they never slow the first visit.

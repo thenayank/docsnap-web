@@ -28,11 +28,10 @@ const haptic = () => { try { navigator.vibrate && navigator.vibrate(8); } catch 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // ---------- settings ----------
-/** v2 confidence below this → orange dot + 'Kone check kar lijiye' hint, and no live 'Page found'. Single knob (was 0.5). */
+/** v2 confidence below this → orange dot + 'Check the corners' hint, and no live 'Page found'. Single knob (was 0.5).
+ *  3.3.2: pure v2 rule — v1's score is a heuristic, not a calibrated confidence, so it no longer overrides the flag. */
 const CONF_FLAG = 0.4;
-/** …unless v1 found the page with strong evidence (v2's confidence alone under-rates real covers / spreads that are cropped right). */
-const V1_STRONG = 0.3;
-const isLow = (conf, det) => conf < CONF_FLAG && !(det && det.score >= V1_STRONG);
+const isLow = (conf) => !(conf >= CONF_FLAG);
 const settings = Object.assign({ filter: 'magic', lang: 'eng', layout: 'list' }, JSON.parse(localStorage.getItem('settings') || '{}'));
 const saveSettings = () => localStorage.setItem('settings', JSON.stringify(settings));
 
@@ -1074,12 +1073,11 @@ async function processBatchPage(pg) {
     const rel = (qq) => qq.map((t) => ({ x: t.x / raw.width, y: t.y / raw.height }));
     if (pg.book && det && scan.pages.includes(pg)) {
       // Book mode: split the spread at the spine (vertical centre of the quad) → left page, then right page
-      const [TL, TR, BR, BL] = q, mid = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }), MT = mid(TL, TR), MB = mid(BL, BR);
-      const qL = [TL, MT, MB, BL], qR = [MT, TR, BR, MB];
+      const [qL, qR] = splitQuad(q, 0.5), spread = { quad: rel(q), t: 0.5 };
       const wl = await vWarp(raw, qL, 0.88), wr = await vWarp(raw, qR, 0.88);
       const pg2 = { id: ++batchSeq, status: 'ok', filter: pg.filter, bc: null, text: '', book: true, half: 'R', v: pg.v, low: pg.low, conf: pg.conf, auto: pg.auto,
-        raw: wr.raw || wl.raw, quad: rel(qR), orig: wr.orig, found: true, _thumb: burl(wr.orig) };
-      Object.assign(pg, { half: 'L', raw: wl.raw, quad: rel(qL), orig: wl.orig, found: true, status: 'ok', _thumb: burl(wl.orig) });
+        raw: wr.raw || wl.raw, quad: rel(qR), orig: wr.orig, found: true, spread, _thumb: burl(wr.orig) };
+      Object.assign(pg, { half: 'L', spread, raw: wl.raw, quad: rel(qL), orig: wl.orig, found: true, status: 'ok', _thumb: burl(wl.orig) });
       scan.pages.splice(scan.pages.indexOf(pg) + 1, 0, pg2);
       pg.t = { decode: Math.round(t1 - t0), detect: Math.round(t2 - t1), warp: Math.round(performance.now() - t2) };
       freeBatchUrls(); delete pg.file;
@@ -1141,7 +1139,7 @@ function updateBatchChrome() {
 async function batchDelete(pg) {
   const t = $('batGrid').querySelector(`[data-id="${pg.id}"]`);
   haptic();
-  scan.pages = scan.pages.filter((p) => p !== pg);
+  scan.pages = scan.pages.filter((p) => p !== pg); if (pg.spread) scan.pages.forEach((p) => { if (p.spread === pg.spread) p.spread = null; });
   if (t) { t.style.transition = 'transform .22s ease, opacity .22s'; t.style.transform = 'scale(.6)'; t.style.opacity = 0; await new Promise((r) => setTimeout(r, 200)); }
   freeBatchUrls(); renderBatch();
 }
@@ -1178,21 +1176,42 @@ function wireTile(t, pg) {
   t.addEventListener('contextmenu', (e) => e.preventDefault());
   t.addEventListener('touchmove', (e) => { if (lifted) e.preventDefault(); }, { passive: false }); // keep the grid from scrolling mid-drag
 }
-const LOWCONF_HINT = 'Kone check kar lijiye';
+const LOWCONF_HINT = 'Check the corners';
+/** Book mode: split a spread quad [TL,TR,BR,BL] at spine fraction t (0.5 = vertical centre) → [left, right]. */
+function splitQuad(q, t = 0.5) {
+  const L = (a, b) => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }), [TL, TR, BR, BL] = q, MT = L(TL, TR), MB = L(BL, BR);
+  return [[TL, MT, MB, BL], [MT, TR, BR, MB]];
+}
 /** Crop editor for a scanned page. 3.3.1: filmstrip of all pages under the image — tap to jump, Next = next page, the last
  *  page's Done goes on to the filter screen. Pages are only re-warped when their corners were actually moved. */
 async function batchCrop(pg) {
   if (pg.status === 'proc') { busy('Finishing auto-crop…'); while (pg.status === 'proc') await new Promise((r) => setTimeout(r, 60)); busy(); }
   if (pg.status === 'err' || !pg.raw) return toast('Couldn’t read that photo — delete it and try again', 'err');
   const idx = scan.pages.indexOf(pg); if (idx < 0) return;
-  const raw = await blobToCanvas(pg.raw), n = scan.pages.length, last = idx === n - 1;
-  const q = pg.quad.map((t) => ({ x: t.x * raw.width, y: t.y * raw.height }));
+  // Book-mode halves share one spread: edit the whole spread with a draggable spine, re-split both pages on Next
+  const halves = pg.spread ? scan.pages.filter((p) => p.spread === pg.spread) : [pg];
+  const pair = halves.length === 2 ? halves : null, lastIdx = scan.pages.indexOf((pair || [pg])[(pair || [pg]).length - 1]);
+  const raw = await blobToCanvas(pg.raw), n = scan.pages.length, last = lastIdx === n - 1;
+  const q = (pair ? pg.spread.quad : pg.quad).map((t) => ({ x: t.x * raw.width, y: t.y * raw.height }));
+  const i0 = scan.pages.indexOf((pair || [pg])[0]);
   const o = {
-    q, found: pg.found, low: pg.found && pg.low, title: n > 1 ? `Page ${idx + 1} of ${n}` : 'Adjust Corners', retake: true,
-    doneLabel: last ? 'Done' : 'Next', strip: { cur: pg },
-    retakeFn: camOk() && settings.liveCam !== false ? () => { Vision.free(raw); crop.opts = null; crop.canvas = null; CAM.replace = pg; openCam(false); } : null,
+    q, found: pg.found, low: pg.found && (pair ? pair.some((p) => p.low) : pg.low), retake: true, spine: pair ? pg.spread.t : null,
+    title: pair ? `Pages ${i0 + 1}–${i0 + 2} of ${n}` : n > 1 ? `Page ${idx + 1} of ${n}` : 'Adjust Corners',
+    doneLabel: last ? 'Done' : 'Next', strip: { cur: pg, pair },
+    retakeFn: camOk() && settings.liveCam !== false ? () => { Vision.free(raw); crop.opts = null; crop.canvas = null; CAM.replace = pg; (pair || []).forEach((h) => { h.spread = null; }); openCam(false); } : null,
     done: async (r, qq, info = {}) => {
-      if (info.touched) {
+      if (info.touched && pair) {
+        busy('Straightening…');
+        try {
+          const t = crop.lastSpine != null ? crop.lastSpine : pg.spread.t, [qL, qR] = splitQuad(qq, t), rl = (x) => x.map((p) => ({ x: p.x / r.width, y: p.y / r.height }));
+          const sp = { quad: rl(qq), t };
+          for (const [h, qh] of [[pair[0], qL], [pair[1], qR]]) {
+            const w = await vWarp(r, qh, 0.88);
+            Object.assign(h, { raw: w.raw, quad: rl(qh), orig: w.orig, found: true, low: false, spread: sp, _thumb: burl(w.orig), _previews: null, _origUrl: null, _final: null, _finalF: null, _pblobs: null });
+          }
+        } catch (e) { toast(e.message, 'err'); }
+        busy(); freeBatchUrls();
+      } else if (info.touched) {
         busy('Straightening…');
         try {
           const w = await vWarp(r, qq, 0.88);
@@ -1201,8 +1220,8 @@ async function batchCrop(pg) {
         busy(); freeBatchUrls();
       }
       Vision.free(r);
-      const go = o.jump != null ? scan.pages[o.jump] : scan.pages[scan.pages.indexOf(pg) + 1];
-      if (go && go !== pg) return batchCrop(go);
+      const go = o.jump != null ? scan.pages[o.jump] : scan.pages[scan.pages.indexOf((pair || [pg])[(pair || [pg]).length - 1]) + 1];
+      if (go && !(pair || [pg]).includes(go)) return batchCrop(go);
       if (o.jump == null && scan.pages.length) return batchNext(); // last page → filter screen
       show('batch', 'down'); renderBatch();
     },
@@ -1215,7 +1234,7 @@ function renderCropStrip() {
   box.hidden = !st || scan.pages.length < 1;
   if (box.hidden) return box.replaceChildren();
   const tiles = scan.pages.map((p, i) => {
-    const on = p === st.cur;
+    const on = p === st.cur || !!(st.pair && st.pair.includes(p));
     const b = el('button', { class: on ? 'on' : '', role: 'tab', 'aria-selected': String(on), 'aria-label': `Page ${i + 1}${p.low ? ', check corners' : ''}`,
       onclick: () => { if (on || !crop.opts) return; haptic(); crop.opts.jump = i; $('cropDone').onclick(); } },
       el('img', { alt: '', src: p._thumb || '', draggable: 'false' }), el('span', { class: 'n' }, String(i + 1)));
@@ -1256,7 +1275,7 @@ $('batPhotos').onclick = async () => { const f = await pickFiles('image/*', true
 const crop = { canvas: null, corners: null, drag: -1, disp: 1, opts: null };
 async function startCrop(canvas, opts = {}) {
   $('cropAuto').classList.toggle('hl', opts.found === false);
-  crop.canvas = canvas; crop.opts = opts; crop.touched = false; crop.corners = opts.q ? opts.q.map((p) => ({ ...p })) : fullCorners(canvas);
+  crop.canvas = canvas; crop.opts = opts; crop.touched = false; crop.spine = opts.spine != null ? opts.spine : null; crop.lastSpine = null; crop.corners = opts.q ? opts.q.map((p) => ({ ...p })) : fullCorners(canvas);
   $('cropTitle').textContent = opts.title || 'Adjust Corners';
   $('cropHint').textContent = opts.found === false ? NOTFOUND_HINT : opts.low ? LOWCONF_HINT : 'Drag the corners or edges to fine-tune';
   $('cropHint').classList.toggle('warn', opts.found === false || !!opts.low);
@@ -1289,6 +1308,14 @@ function drawCrop() {
     ctx.fillStyle = on ? '#2dd4bf' : '#fff'; ctx.shadowColor = 'rgba(0,0,0,.4)'; ctx.shadowBlur = 6 * d; ctx.fill(); ctx.shadowBlur = 0;
     ctx.lineWidth = 2 * d; ctx.strokeStyle = on ? '#fff' : '#2dd4bf'; ctx.stroke(); ctx.restore();
   }
+  if (crop.spine != null) { // Book mode: dashed teal spine where the spread is split, with a draggable grip
+    const [a, b] = spineLine(q, crop.spine), on = crop.drag === 8, m = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    ctx.save(); ctx.setLineDash([7 * d, 6 * d]); ctx.lineWidth = 2 * d; ctx.strokeStyle = '#2dd4bf'; ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); ctx.restore();
+    ctx.save(); ctx.translate(m.x, m.y); ctx.rotate(Math.atan2(b.y - a.y, b.x - a.x));
+    const hw = (on ? 18 : 14) * d, hh = (on ? 4.5 : 3.5) * d;
+    ctx.beginPath(); ctx.roundRect(-hw, -hh, hw * 2, hh * 2, hh); ctx.fillStyle = on ? '#2dd4bf' : '#fff'; ctx.shadowColor = 'rgba(0,0,0,.4)'; ctx.shadowBlur = 6 * d; ctx.fill(); ctx.shadowBlur = 0;
+    ctx.lineWidth = 2 * d; ctx.strokeStyle = on ? '#fff' : '#2dd4bf'; ctx.stroke(); ctx.restore();
+  }
   q.forEach((p, i) => {
     ctx.beginPath(); ctx.arc(p.x, p.y, (crop.drag === i ? 13 : 10) * d, 0, 7);
     ctx.fillStyle = '#fff'; ctx.shadowColor = 'rgba(0,0,0,.4)'; ctx.shadowBlur = 8 * d; ctx.fill(); ctx.shadowBlur = 0;
@@ -1316,6 +1343,8 @@ function drawLoupe(p) {
 }
 function canvasPoint(e) { const cc = $('cropCanvas'), r = cc.getBoundingClientRect(); return { x: (e.clientX - r.left) * (cc.width / r.width), y: (e.clientY - r.top) * (cc.height / r.height) }; }
 // Hit targets: corners (index 0-3) and edge midpoints (4-7, edge k joins corner k and k+1). ≥44pt each.
+const spineLine = (q, t) => [{ x: q[0].x + (q[1].x - q[0].x) * t, y: q[0].y + (q[1].y - q[0].y) * t }, { x: q[3].x + (q[2].x - q[3].x) * t, y: q[3].y + (q[2].y - q[3].y) * t }];
+const spineMid = (q, t) => { const [a, b] = spineLine(q, t); return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }; };
 const edgeMid = (q, k) => { const a = q[k], b = q[(k + 1) % 4]; return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }; };
 function quadValid(q) {
   // convex, non-self-intersecting, not degenerate (consistent turn direction + min area)
@@ -1337,14 +1366,21 @@ $('cropCanvas').addEventListener('pointerdown', (e) => {
   const p = canvasPoint(e), q = crop.corners; let best = -1, bd = 34 * crop.disp; // 68pt-wide corner targets
   q.forEach((c, i) => { const d = Math.hypot(c.x - p.x, c.y - p.y); if (d < bd) { bd = d; best = i; } });
   if (best < 0) { bd = 30 * crop.disp; for (let k = 0; k < 4; k++) { const m = edgeMid(q, k), d = Math.hypot(m.x - p.x, m.y - p.y); if (d < bd) { bd = d; best = 4 + k; } } }
+  if (crop.spine != null) { const m = spineMid(q, crop.spine), d = Math.hypot(m.x - p.x, m.y - p.y), dm = 30 * crop.disp;
+    if (d < dm && (best < 0 || best >= 4)) best = 8; else if (best < 0) { const [a, b] = spineLine(q, crop.spine), ex = b.x - a.x, ey = b.y - a.y, L2 = ex * ex + ey * ey || 1, u = Math.max(0, Math.min(1, ((p.x - a.x) * ex + (p.y - a.y) * ey) / L2)); if (Math.hypot(a.x + ex * u - p.x, a.y + ey * u - p.y) < 22 * crop.disp) best = 8; } }
   crop.drag = best; if (best < 0) return;
-  crop.touched = true; crop.start = { p, q: q.map((t) => ({ ...t })) };
+  crop.touched = true; crop.start = { p, q: q.map((t) => ({ ...t })), t: crop.spine };
   e.target.setPointerCapture(e.pointerId); haptic(); drawCrop(); drawLoupe(dragPoint());
 });
-const dragPoint = () => (crop.drag < 4 ? crop.corners[crop.drag] : edgeMid(crop.corners, crop.drag - 4));
+const dragPoint = () => (crop.drag === 8 ? spineMid(crop.corners, crop.spine) : crop.drag < 4 ? crop.corners[crop.drag] : edgeMid(crop.corners, crop.drag - 4));
 $('cropCanvas').addEventListener('pointermove', (e) => {
   if (crop.drag < 0 || !crop.canvas) return;
   const p = canvasPoint(e), c = crop.canvas, s = crop.start;
+  if (crop.drag === 8) { // spine: slide along the spread's width (average of top and bottom edges), kept between 20% and 80%
+    const q = crop.corners, ux = (q[1].x - q[0].x + q[2].x - q[3].x) / 2, uy = (q[1].y - q[0].y + q[2].y - q[3].y) / 2, L2 = ux * ux + uy * uy || 1;
+    crop.spine = crop.lastSpine = Math.max(0.2, Math.min(0.8, s.t + ((p.x - s.p.x) * ux + (p.y - s.p.y) * uy) / L2));
+    drawCrop(); drawLoupe(dragPoint()); return;
+  }
   let nq = crop.corners.map((t) => ({ ...t }));
   if (crop.drag < 4) nq[crop.drag] = clampPt({ x: s.q[crop.drag].x + p.x - s.p.x, y: s.q[crop.drag].y + p.y - s.p.y }, c);
   else {
