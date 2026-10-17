@@ -7,10 +7,10 @@
 const Detector = {
   async live(canvas) {
     const bmp = await createImageBitmap(canvas);
-    const r = await VW.call('detectLive', { src: bmp }, [bmp], -1);
-    return r && r.q ? { q: r.q, conf: Math.min(1, (r.votes || 1) / 4), ms: r.ms } : null;
+    const r = await VW.call('detectLive', { src: bmp, conf: CONF_FLAG, strong: V1_STRONG }, [bmp], -1);
+    return r && r.q && !Vision.fullFrame(r.q, canvas.width, canvas.height) ? { q: r.q, conf: r.conf, ms: r.ms } : null;
   },
-  async still(canvas) { const d = await vDetectBest(canvas); return d ? { q: d.q, conf: Math.min(1, (d.votes || 1) / 4) } : null; },
+  async still(canvas) { const d = await vDetectBest(canvas); return d ? { q: d.q, conf: d.conf } : null; },
   detect(canvas) { return this.still(canvas); }
 };
 
@@ -26,7 +26,7 @@ function camMsg(t, hold) { const m = $('camMsg'); if (m.textContent !== t) m.tex
 function camChrome() {
   $('camAuto').textContent = CAM.auto ? 'Auto' : 'Manual'; $('camAuto').classList.toggle('on', CAM.auto); $('camAuto').setAttribute('aria-pressed', CAM.auto);
   $('camHD').classList.toggle('on', CAM.hd); $('camHD').setAttribute('aria-pressed', CAM.hd);
-  $('camGridBtn').classList.toggle('on', !!settings.camGrid); $('camGrid').hidden = !settings.camGrid;
+  const bk = !!settings.book; $('camBook').classList.toggle('on', bk); $('camBook').setAttribute('aria-pressed', bk); $('camGrid').hidden = true;
   $('camTorch').classList.toggle('on', CAM.torch);
 }
 function openCam(fresh = true) {
@@ -136,37 +136,50 @@ function drawCamOverlay() {
   x.fillStyle = 'rgba(45,212,191,.12)'; x.fill();
   x.shadowColor = 'rgba(45,212,191,.9)'; x.shadowBlur = 8; x.strokeStyle = '#2dd4bf'; x.lineWidth = 2; x.lineJoin = 'round'; x.stroke();
   x.shadowBlur = 0;
+  if (settings.book) { // Book mode: dashed spine guide where the spread will be split
+    const d = CAM.disp, P = (p) => [m.ox + p.x * m.k, m.oy + p.y * m.k], a = P({ x: (d[0].x + d[1].x) / 2, y: (d[0].y + d[1].y) / 2 }), b = P({ x: (d[3].x + d[2].x) / 2, y: (d[3].y + d[2].y) / 2 });
+    x.setLineDash([6, 5]); x.lineWidth = 1.5; x.beginPath(); x.moveTo(a[0], a[1]); x.lineTo(b[0], b[1]); x.stroke(); x.setLineDash([]);
+  }
 }
 
 async function camShoot(auto) {
   const v = $('camVideo'); if (CAM.shooting || !v.videoWidth) return;
-  CAM.shooting = true; disarm();
+  CAM.shooting = true; CAM.t0Shot = performance.now(); disarm();
   try {
     // full-resolution still straight from the video frame
     const c = document.createElement('canvas'); c.width = v.videoWidth; c.height = v.videoHeight;
     c.getContext('2d').drawImage(v, 0, 0);
-    const fly = flyShot(v, CAM.disp && CAM.alpha > 0.5 ? CAM.disp : null);
+    const fly = flyShot(c, CAM.disp && CAM.alpha > 0.5 ? CAM.disp : null);
     const f = $('camFlash'); f.classList.remove('go'); void f.offsetWidth; f.classList.add('go');
     haptic();
     CAM.cool = CAM.q || [{ x: 0, y: 0 }, { x: 0, y: 0 }, { x: 0, y: 0 }, { x: 0, y: 0 }];
     if (!CAM.q) CAM.cool = null;
-    const blob = await canvasToBlob(c, 0.92); Vision.free(c);
-    const file = new File([blob], `scan-${Date.now()}.jpg`, { type: 'image/jpeg' });
-    if (CAM.replace) { // retake of one page from the grid / crop editor
+    // 3.3.1 fast shutter: a tray thumbnail straight from the frame; the full-res JPEG encodes in the background and
+    // detection / v2 refine / warp run later in the batch chain — the next shot is possible right away
+    const tc = document.createElement('canvas'), ts = 240 / Math.max(c.width, c.height); tc.width = Math.round(c.width * ts); tc.height = Math.round(c.height * ts);
+    tc.getContext('2d').drawImage(c, 0, 0, tc.width, tc.height);
+    const thumb = tc.toDataURL('image/jpeg', 0.7); tc.width = tc.height = 0;
+    const fileP = canvasToBlob(c, 0.92).then((blob) => { Vision.free(c); return new File([blob], `scan-${Date.now()}.jpg`, { type: 'image/jpeg' }); });
+    if (CAM.replace) {
+      const file = await fileP; // retake of one page from the grid / crop editor
       const pg = CAM.replace; CAM.replace = null;
       Object.assign(pg, { status: 'proc', file, raw: null, orig: null, found: false, _thumb: burl(file), _previews: null, _origUrl: null, _final: null, _finalF: null, _pblobs: null });
       batchChain.p = batchChain.p.then(() => processBatchPage(pg));
       await fly; CAM.shooting = false; camStop(); openBatch(); toast(`Page ${scan.pages.indexOf(pg) + 1} retaken`); return;
     }
-    batchAdd([file]);
+    batchAdd([{ fileP, thumb, book: !!settings.book }]);
     const pg = scan.pages[scan.pages.length - 1]; if (pg) pg.auto = !!auto;
     CAM.capMsg = true; camMsg('Captured'); setTimeout(() => { CAM.capMsg = false; }, 900);
-    await fly; renderTray(true);
+    CAM.lastShot = performance.now() - CAM.t0Shot;
+    CAM.shooting = false;
+    renderTray(false); // count + stack update at once; the badge bounces when the shot lands
+    fly.then(() => { if (curView === 'cam') renderTray(true); });
+    return;
   } catch (e) { toast('Couldn’t take the photo', 'err'); }
   CAM.shooting = false;
 }
 /** The captured (cropped) frame shrinks and flies into the tray. */
-function flyShot(v, q) {
+function flyShot(v, q) { // v: the captured frame (canvas) — same pixel size as the video
   const m = camMap(), cv2 = document.createElement('canvas'); cv2.width = m.W; cv2.height = m.H;
   cv2.getContext('2d').drawImage(v, m.ox, m.oy, m.vw * m.k, m.vh * m.k);
   let bx = 0, by = 0, bw = m.W, bh = m.H;
@@ -192,7 +205,6 @@ function renderTray(bump) {
     tray.replaceChildren(...last.map((p) => el('img', { src: p._thumb || '', alt: '' })), el('span', { class: 'pn' }, String(n)));
     tray.setAttribute('aria-label', `Page ${n}. Tap to retake it`);
   }
-  $('camTrayDel').hidden = !n;
   $('camDone').disabled = !n; const b = $('camBadge'); b.hidden = !n; b.textContent = n;
   if (bump) { b.classList.remove('bump'); void b.offsetWidth; b.classList.add('bump'); }
 }
@@ -218,10 +230,13 @@ $('camTray').onclick = async () => {
   if (scan.pages.length) return camRemoveLast(true);
   const f = await pickFiles('image/*', true); if (f.length) { batchAdd(f); renderTray(true); }
 };
-$('camTrayDel').onclick = (e) => { e.stopPropagation(); camRemoveLast(false); };
 $('camAuto').onclick = () => { settings.camAuto = !CAM.auto; saveSettings(); disarm(); camChrome(); haptic(); };
 $('camHD').onclick = async () => { settings.camHD = !CAM.hd; saveSettings(); camChrome(); camStop(); camMsg('Starting camera…'); await camStart(); toast(CAM.hd ? 'HD on · sharper pages' : 'HD off · smaller files'); };
-$('camGridBtn').onclick = () => { settings.camGrid = !settings.camGrid; saveSettings(); camChrome(); };
+function bookCaption() { // 'Book mode on' fades out after 2 s (0.3 s ease-out)
+  const c = $('camBookCap'); clearTimeout(bookCaption.t); c.classList.remove('fade'); c.classList.add('show'); $('cam').classList.add('capon');
+  bookCaption.t = setTimeout(() => { c.classList.add('fade'); c.classList.remove('show'); setTimeout(() => $('cam').classList.remove('capon'), 300); }, 2000);
+}
+$('camBook').onclick = () => { settings.book = !settings.book; saveSettings(); camChrome(); haptic(); CAM.hist = []; disarm(); if (settings.book) bookCaption(); else { $('camBookCap').classList.remove('show'); toast('Book mode off · spreads stay one page'); } };
 $('camTorch').onclick = async () => {
   if (!CAM.track) return; const on = !CAM.torch;
   try { await CAM.track.applyConstraints({ advanced: [{ torch: on }] }); CAM.torch = on; } catch { toast('Flash isn’t available', 'err'); }

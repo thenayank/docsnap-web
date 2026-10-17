@@ -20,7 +20,7 @@ const fit = (c, maxLong) => {
 };
 const jpeg = (c, q = 0.92) => c.convertToBlob({ type: 'image/jpeg', quality: q });
 const OPS = {
-  async detect({ src }) { const c = await toCanvas(src); const d = Vision.detect(cv, c); return d; },
+  async detect({ src }) { const c = await toCanvas(src); const d = Vision.detect(cv, c); return d && Vision.fullFrame(d.q, c.width, c.height) ? null : d; },
   async warp({ src, q, outLong, rawQ }) {
     const c = await toCanvas(src); const w = Vision.warp(cv, c, q, outLong);
     const out = { orig: await jpeg(w, 0.92), w: w.width, h: w.height };
@@ -33,16 +33,20 @@ const OPS = {
     return { blob: await jpeg(o, quality || 0.92), w: o.width, h: o.height };
   },
   // live camera: small frame (~500px long side) → corners; the frame canvas is reused between calls
-  async detectLive({ src }) {
+  async detectLive({ src, conf: CONF_FLAG = 0.4, strong: V1_STRONG = 0.3 }) {
     let c = self._liveC; if (!c || c.width !== src.width || c.height !== src.height) c = self._liveC = new OffscreenCanvas(src.width, src.height);
     c.getContext('2d').drawImage(src, 0, 0); src.close && src.close();
     const t = performance.now(), d = Vision.detect(cv, c);
-    return d ? { q: d.q, votes: d.votes, ms: performance.now() - t } : { q: null, ms: performance.now() - t };
+    // live gate (3.3.1): the outline only shows for a confident, edge-supported, not-frame-sized quad
+    // + hard full-frame rule (never 'Page found' on a > FRAME_MAX quad, whatever the confidence) + v2 confidence ≥ CONF_FLAG
+    let ok = d && d.score >= 0.2 && d.meta.support >= 0.5 && d.meta.qa <= 0.85 && !Vision.fullFrame(d.q, c.width, c.height), conf = null;
+    if (ok) { try { const r = DetectorV2.refineFrom(c, { q: d.q, votes: d.votes }); conf = r ? r.confidence : 0; if (!r || r.noPage || (conf < CONF_FLAG && d.score < V1_STRONG)) ok = false; } catch (e) { conf = null; } }
+    return ok ? { q: d.q, votes: d.votes, score: d.score, conf, ms: performance.now() - t } : { q: null, conf, ms: performance.now() - t };
   },
   // detector-v2 corner refinement on a v1 result (after capture / import)
   async refine({ src, q, votes }) {
     const c = await toCanvas(src); const r = DetectorV2.refineFrom(c, { q, votes });
-    return r && r.corners && r.corners.every((p) => Number.isFinite(p[0]) && Number.isFinite(p[1])) ? { q: r.corners.map((p) => ({ x: p[0], y: p[1] })), conf: r.confidence } : null;
+    return r && r.corners && r.corners.every((p) => Number.isFinite(p[0]) && Number.isFinite(p[1])) ? { q: r.corners.map((p) => ({ x: p[0], y: p[1] })), conf: r.confidence, noPage: r.noPage } : null;
   },
   ping() { return true; }
 };

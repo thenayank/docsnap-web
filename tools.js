@@ -155,7 +155,11 @@ const TOOLS = {
       if (pw.value !== pw2.value) throw new Error('Passwords don’t match');
       const doc = await loadPdf(st.files[0]);
       doc.encrypt({ userPassword: pw.value, ownerPassword: pw.value, permissions: { printing: 'highResolution', copying: true, modifying: true } });
-      busy(); await deliver([pdfFile(await doc.save(), `${baseName(st.files[0])} (protected).pdf`)]);
+      const name = `${baseName(st.files[0])} (protected).pdf`;
+      busy(); await deliver([pdfFile(await doc.save(), name)]);
+      // 3.3.1: confirm on screen too (the share sheet may already be gone by the time the user looks back)
+      let res = body.querySelector('.result'); if (!res) body.append(res = el('div', { class: 'result' }));
+      res.replaceChildren(icon('check'), el('span', { textContent: `Password added · ${name}` }));
     }), true, true);
     const st = filePicker(body, { multiple: false, onChange: (f) => (go.disabled = !f.length) });
     body.append(el('h2', { class: 'ghead', textContent: 'Password' }), field(pw, pw2));

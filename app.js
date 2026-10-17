@@ -28,6 +28,11 @@ const haptic = () => { try { navigator.vibrate && navigator.vibrate(8); } catch 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // ---------- settings ----------
+/** v2 confidence below this → orange dot + 'Kone check kar lijiye' hint, and no live 'Page found'. Single knob (was 0.5). */
+const CONF_FLAG = 0.4;
+/** …unless v1 found the page with strong evidence (v2's confidence alone under-rates real covers / spreads that are cropped right). */
+const V1_STRONG = 0.3;
+const isLow = (conf, det) => conf < CONF_FLAG && !(det && det.score >= V1_STRONG);
 const settings = Object.assign({ filter: 'magic', lang: 'eng', layout: 'list' }, JSON.parse(localStorage.getItem('settings') || '{}'));
 const saveSettings = () => localStorage.setItem('settings', JSON.stringify(settings));
 
@@ -467,7 +472,10 @@ async function openDoc(id, mode = 'push') {
     tile.dataset.i = i; wrap.append(tile);
   });
   $('doc').querySelector('.tip').hidden = current.pages.length < 2;
+  // 'none' = refresh in place without animation; if the document screen isn't showing yet, show it (3.3.1 fix: callers
+  // that open a document with 'none' from another screen used to stay where they were)
   if (mode !== 'none') show('doc', curView === 'home' || curView === 'tool' ? 'push' : 'pop');
+  else if (curView !== 'doc') show('doc', 'none');
   docSelChrome();
 }
 $('docTitle').onclick = async () => { if (await renameDoc(current)) openDoc(current.id, 'none'); };
@@ -911,7 +919,7 @@ async function vDetect(canvas) {
     const bmp = await createImageBitmap(c); if (c !== canvas) Vision.free(c);
     const d = await VW.call('detect', { src: bmp }); bmp.close();
     return d && { ...d, q: d.q.map((p) => ({ x: p.x / k, y: p.y / k })) };
-  } catch (e) { if (!isFallback(e)) throw e; const { cv } = await loadCv(); return Vision.detect(cv, canvas); }
+  } catch (e) { if (!isFallback(e)) throw e; const { cv } = await loadCv(); const d = Vision.detect(cv, canvas); return d && Vision.fullFrame(d.q, canvas.width, canvas.height) ? null : d; }
 }
 /** detector-v2 refinement (worker). v2 corners are used directly; v1 is kept only if v2 errors, times out (>3 s) or returns null. */
 async function vRefine(canvas, det) {
@@ -922,8 +930,10 @@ async function vRefine(canvas, det) {
     const r = await Promise.race([VW.call('refine', { src: bmp, q: det.q.map((p) => ({ x: p.x * k, y: p.y * k })), votes: det.votes }), sleep(3000).then(() => { throw new Error('refine timeout'); })]);
     bmp.close && bmp.close();
     if (!r) return { ...det, v: 1 };
+    if (r.noPage) return { ...det, v: 1, conf: r.conf, low: true }; // v2 sees no real page edges: keep v1 corners but ask the user to check
     const q = r.q.map((p) => ({ x: p.x / k, y: p.y / k }));
-    return { ...det, q, conf: r.conf, v: 2 };
+    if (Vision.fullFrame(q, canvas.width, canvas.height)) return { ...det, v: 1, conf: r.conf, low: isLow(r.conf, det) }; // hard rule: v2 may not grow to the frame
+    return { ...det, q, conf: r.conf, v: 2, low: isLow(r.conf, det) };
   } catch (e) { return { ...det, v: 1 }; }
 }
 /** v1 detect + v2 refine: used after capture / import and by the crop editor. */
@@ -1042,8 +1052,9 @@ const batchChain = { p: Promise.resolve() };
 function batchAdd(files) {
   const had = scan.pages.length;
   for (const f of files) {
-    const pg = { id: ++batchSeq, status: 'proc', file: f, filter: scan.filter || settings.filter || 'magic', bc: null, text: '' };
-    try { pg._thumb = burl(f); } catch {}
+    const fast = f && f.fileP; // camera: { fileP: Promise<File>, thumb: dataURL, book } — the shutter never waits for JPEG encoding
+    const pg = { id: ++batchSeq, status: 'proc', file: fast ? null : f, fileP: fast ? f.fileP : null, book: fast ? !!f.book : !!settings.book && scan.src === 'live', filter: scan.filter || settings.filter || 'magic', bc: null, text: '' };
+    if (fast) pg._thumb = f.thumb; else try { pg._thumb = burl(f); } catch {}
     scan.pages.push(pg);
     // one page at a time in the worker, in capture order; the UI never waits on it
     batchChain.p = batchChain.p.then(() => processBatchPage(pg));
@@ -1055,13 +1066,30 @@ async function processBatchPage(pg) {
   const t0 = performance.now();
   let raw = null;
   try {
+    if (!pg.file && pg.fileP) { pg.file = await pg.fileP; pg.fileP = null; }
     raw = await Vision.decode(pg.file, 3000); const t1 = performance.now();
     let det = null; try { det = await vDetect(raw); } catch {}
-    if (det) { pg.stage = 'refine'; updateBatchTile(pg); det = await vRefine(raw, det); pg.v = det.v; }
-    const t2 = performance.now(), q = det ? det.q : fullCorners(raw);
-    const w = await vWarp(raw, Vision.order(q), 0.88);
+    if (det) { pg.stage = 'refine'; updateBatchTile(pg); det = await vRefine(raw, det); pg.v = det.v; pg.low = !!det.low; pg.conf = det.conf; }
+    const t2 = performance.now(), q = Vision.order(det ? det.q : fullCorners(raw));
+    const rel = (qq) => qq.map((t) => ({ x: t.x / raw.width, y: t.y / raw.height }));
+    if (pg.book && det && scan.pages.includes(pg)) {
+      // Book mode: split the spread at the spine (vertical centre of the quad) → left page, then right page
+      const [TL, TR, BR, BL] = q, mid = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }), MT = mid(TL, TR), MB = mid(BL, BR);
+      const qL = [TL, MT, MB, BL], qR = [MT, TR, BR, MB];
+      const wl = await vWarp(raw, qL, 0.88), wr = await vWarp(raw, qR, 0.88);
+      const pg2 = { id: ++batchSeq, status: 'ok', filter: pg.filter, bc: null, text: '', book: true, half: 'R', v: pg.v, low: pg.low, conf: pg.conf, auto: pg.auto,
+        raw: wr.raw || wl.raw, quad: rel(qR), orig: wr.orig, found: true, _thumb: burl(wr.orig) };
+      Object.assign(pg, { half: 'L', raw: wl.raw, quad: rel(qL), orig: wl.orig, found: true, status: 'ok', _thumb: burl(wl.orig) });
+      scan.pages.splice(scan.pages.indexOf(pg) + 1, 0, pg2);
+      pg.t = { decode: Math.round(t1 - t0), detect: Math.round(t2 - t1), warp: Math.round(performance.now() - t2) };
+      freeBatchUrls(); delete pg.file;
+      if (raw) Vision.free(raw); pg.ms = Math.round(performance.now() - t0);
+      if (curView === 'batch') renderBatch(); else updateBatchTile(pg);
+      return;
+    }
+    const w = await vWarp(raw, q, 0.88);
     pg.t = { decode: Math.round(t1 - t0), detect: Math.round(t2 - t1), warp: Math.round(performance.now() - t2) };
-    Object.assign(pg, { raw: w.raw, quad: Vision.order(q).map((t) => ({ x: t.x / raw.width, y: t.y / raw.height })), orig: w.orig, found: !!det, status: 'ok', _thumb: burl(w.orig) });
+    Object.assign(pg, { raw: w.raw, quad: rel(q), orig: w.orig, found: !!det, status: 'ok', _thumb: burl(w.orig) });
     freeBatchUrls();
     delete pg.file;
   } catch (e) { console.warn('batch page failed', e && e.message); pg.status = 'err'; }
@@ -1081,6 +1109,7 @@ function batchTile(pg, i) {
   if (pg.status === 'proc') t.append(el('div', { class: 'spin small' }), pg.stage === 'refine' ? el('span', { class: 'stage' }, 'Refining edges…') : null);
   else if (pg.status === 'err') t.append(el('span', { class: 'warn' }, 'Couldn’t read'));
   else if (!pg.found) t.append(el('span', { class: 'warn' }, 'Page not found'));
+  else if (pg.low) t.append(el('i', { class: 'odot', 'aria-label': 'Check the corners' }));
   if (pg.override) t.append(el('span', { class: 'ov' }, FILTERS.find((f) => f[0] === pg.filter)?.[1] || ''));
   wireTile(t, pg);
   return t;
@@ -1094,6 +1123,7 @@ function renderBatch(scrollEnd) {
 }
 function updateBatchTile(pg) {
   if (curView === 'cam') renderTray(false);
+  if (curView === 'crop') renderCropStrip();
   if (curView !== 'batch' && curView !== 'crop') return;
   const i = scan.pages.indexOf(pg), old = $('batGrid').querySelector(`[data-id="${pg.id}"]`);
   if (i < 0 || !old) return;
@@ -1148,26 +1178,56 @@ function wireTile(t, pg) {
   t.addEventListener('contextmenu', (e) => e.preventDefault());
   t.addEventListener('touchmove', (e) => { if (lifted) e.preventDefault(); }, { passive: false }); // keep the grid from scrolling mid-drag
 }
+const LOWCONF_HINT = 'Kone check kar lijiye';
+/** Crop editor for a scanned page. 3.3.1: filmstrip of all pages under the image — tap to jump, Next = next page, the last
+ *  page's Done goes on to the filter screen. Pages are only re-warped when their corners were actually moved. */
 async function batchCrop(pg) {
   if (pg.status === 'proc') { busy('Finishing auto-crop…'); while (pg.status === 'proc') await new Promise((r) => setTimeout(r, 60)); busy(); }
   if (pg.status === 'err' || !pg.raw) return toast('Couldn’t read that photo — delete it and try again', 'err');
   const idx = scan.pages.indexOf(pg); if (idx < 0) return;
-  const raw = await blobToCanvas(pg.raw);
+  const raw = await blobToCanvas(pg.raw), n = scan.pages.length, last = idx === n - 1;
   const q = pg.quad.map((t) => ({ x: t.x * raw.width, y: t.y * raw.height }));
-  startCrop(raw, {
-    q, found: pg.found, title: scan.pages.length > 1 ? `Page ${idx + 1} of ${scan.pages.length}` : 'Adjust Corners', retake: true,
+  const o = {
+    q, found: pg.found, low: pg.found && pg.low, title: n > 1 ? `Page ${idx + 1} of ${n}` : 'Adjust Corners', retake: true,
+    doneLabel: last ? 'Done' : 'Next', strip: { cur: pg },
     retakeFn: camOk() && settings.liveCam !== false ? () => { Vision.free(raw); crop.opts = null; crop.canvas = null; CAM.replace = pg; openCam(false); } : null,
-    done: async (r, qq) => {
-      busy('Straightening…');
-      try {
-        const w = await vWarp(r, qq, 0.88);
-        Object.assign(pg, { raw: w.raw, quad: qq.map((t) => ({ x: t.x / r.width, y: t.y / r.height })), orig: w.orig, found: true, _thumb: burl(w.orig), _previews: null, _origUrl: null, _final: null, _finalF: null, _pblobs: null });
-        Vision.free(r);
-      } catch (e) { toast(e.message, 'err'); }
-      busy(); freeBatchUrls(); show('batch', 'down'); renderBatch();
+    done: async (r, qq, info = {}) => {
+      if (info.touched) {
+        busy('Straightening…');
+        try {
+          const w = await vWarp(r, qq, 0.88);
+          Object.assign(pg, { raw: w.raw, quad: qq.map((t) => ({ x: t.x / r.width, y: t.y / r.height })), orig: w.orig, found: true, low: false, _thumb: burl(w.orig), _previews: null, _origUrl: null, _final: null, _finalF: null, _pblobs: null });
+        } catch (e) { toast(e.message, 'err'); }
+        busy(); freeBatchUrls();
+      }
+      Vision.free(r);
+      const go = o.jump != null ? scan.pages[o.jump] : scan.pages[scan.pages.indexOf(pg) + 1];
+      if (go && go !== pg) return batchCrop(go);
+      if (o.jump == null && scan.pages.length) return batchNext(); // last page → filter screen
+      show('batch', 'down'); renderBatch();
     },
     cancel: () => { show('batch', 'down'); renderBatch(); }
+  };
+  startCrop(raw, o);
+}
+function renderCropStrip() {
+  const box = $('cropStrip'), o = crop.opts, st = o && o.strip;
+  box.hidden = !st || scan.pages.length < 1;
+  if (box.hidden) return box.replaceChildren();
+  const tiles = scan.pages.map((p, i) => {
+    const on = p === st.cur;
+    const b = el('button', { class: on ? 'on' : '', role: 'tab', 'aria-selected': String(on), 'aria-label': `Page ${i + 1}${p.low ? ', check corners' : ''}`,
+      onclick: () => { if (on || !crop.opts) return; haptic(); crop.opts.jump = i; $('cropDone').onclick(); } },
+      el('img', { alt: '', src: p._thumb || '', draggable: 'false' }), el('span', { class: 'n' }, String(i + 1)));
+    if (p.status === 'ok' && (p.low || !p.found)) b.append(el('i', { class: 'dot' }));
+    return b;
   });
+  const add = el('button', { class: 'add', 'aria-label': 'Add pages', onclick: () => {
+    if (!crop.opts) return; const c = crop.canvas; crop.opts = null; crop.canvas = null; if (c) Vision.free(c);
+    camOk() && settings.liveCam !== false ? openCam(false) : (show('batch', 'down'), renderBatch(), $('batPhotos').click());
+  } }, icon('plus'));
+  box.replaceChildren(...tiles, add);
+  const cur = box.querySelector('.on'); if (cur) cur.scrollIntoView({ inline: 'center', block: 'nearest' });
 }
 async function batchLeave() {
   const n = scan.pages.length;
@@ -1198,7 +1258,11 @@ async function startCrop(canvas, opts = {}) {
   $('cropAuto').classList.toggle('hl', opts.found === false);
   crop.canvas = canvas; crop.opts = opts; crop.touched = false; crop.corners = opts.q ? opts.q.map((p) => ({ ...p })) : fullCorners(canvas);
   $('cropTitle').textContent = opts.title || 'Adjust Corners';
-  $('cropHint').textContent = opts.found === false ? NOTFOUND_HINT : 'Drag the corners or edges to fine-tune';
+  $('cropHint').textContent = opts.found === false ? NOTFOUND_HINT : opts.low ? LOWCONF_HINT : 'Drag the corners or edges to fine-tune';
+  $('cropHint').classList.toggle('warn', opts.found === false || !!opts.low);
+  $('cropAuto').classList.toggle('hl', opts.found === false || !!opts.low);
+  $('cropDone').textContent = opts.doneLabel || 'Next';
+  renderCropStrip();
   $('cropRetake').style.display = opts.retake ? '' : 'none';
   $('loupe').classList.remove('on'); $('crop').classList.remove('finding');
   if (curView !== 'crop') show('crop', 'up');
@@ -1212,7 +1276,7 @@ function drawCrop() {
   const rect = cc.getBoundingClientRect();
   crop.disp = rect.width ? src.width / rect.width : 1;
   const q = crop.corners, d = crop.disp;
-  ctx.fillStyle = 'rgba(0,0,0,.55)'; ctx.beginPath();
+  ctx.fillStyle = 'rgba(0,0,0,.5)'; ctx.beginPath();
   ctx.rect(0, 0, cc.width, cc.height); ctx.moveTo(q[0].x, q[0].y);
   [3, 2, 1].forEach((i) => ctx.lineTo(q[i].x, q[i].y)); ctx.closePath(); ctx.fill('evenodd');
   ctx.strokeStyle = '#2dd4bf'; ctx.lineWidth = 2.5 * d; ctx.lineJoin = 'round'; ctx.beginPath();
@@ -1220,7 +1284,7 @@ function drawCrop() {
   for (let k = 0; k < 4; k++) { // edge midpoint handles: white capsules aligned with the edge
     const a = q[k], b = q[(k + 1) % 4], m = edgeMid(q, k), on = crop.drag === 4 + k;
     ctx.save(); ctx.translate(m.x, m.y); ctx.rotate(Math.atan2(b.y - a.y, b.x - a.x));
-    const hw = (on ? 22 : 17) * d, hh = (on ? 6 : 4.5) * d;
+    const hw = (on ? 18 : 14) * d, hh = (on ? 4.5 : 3.5) * d;
     ctx.beginPath(); ctx.roundRect(-hw, -hh, hw * 2, hh * 2, hh);
     ctx.fillStyle = on ? '#2dd4bf' : '#fff'; ctx.shadowColor = 'rgba(0,0,0,.4)'; ctx.shadowBlur = 6 * d; ctx.fill(); ctx.shadowBlur = 0;
     ctx.lineWidth = 2 * d; ctx.strokeStyle = on ? '#fff' : '#2dd4bf'; ctx.stroke(); ctx.restore();
@@ -1229,6 +1293,7 @@ function drawCrop() {
     ctx.beginPath(); ctx.arc(p.x, p.y, (crop.drag === i ? 13 : 10) * d, 0, 7);
     ctx.fillStyle = '#fff'; ctx.shadowColor = 'rgba(0,0,0,.4)'; ctx.shadowBlur = 8 * d; ctx.fill(); ctx.shadowBlur = 0;
     ctx.lineWidth = 2.5 * d; ctx.strokeStyle = '#2dd4bf'; ctx.stroke();
+    ctx.beginPath(); ctx.arc(p.x, p.y, 3 * d, 0, 7); ctx.fillStyle = '#2dd4bf'; ctx.fill();
   });
 }
 function drawLoupe(p) {
@@ -1327,7 +1392,7 @@ $('cropDone').onclick = async () => {
   }
   const o = crop.opts, raw = crop.canvas, q = Vision.order(crop.corners);
   crop.opts = null; crop.canvas = null;
-  if (o && o.done) return o.done(raw, q);
+  if (o && o.done) return o.done(raw, q, { touched: crop.touched || o.dirty });
   show('home', 'down');
 };
 window.addEventListener('resize', () => { if (curView === 'crop') drawCrop(); if (curView === 'place') drawPlace(); });

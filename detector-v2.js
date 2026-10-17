@@ -5,7 +5,7 @@
  *          pick strongest bright->dark step, robust (trimmed) line fit, intersect sides.
  * Stage 3: confidence from edge support + contrast; low confidence -> null (no page). */
 const DetectorV2 = (() => {
-  const REF_LONG = 2000;
+  const REF_LONG = 2000, MIN_CONF = 0.05; // below this: treat as no page
   function toCanvas(img) {
     if (img instanceof HTMLCanvasElement) return img;
     const c = document.createElement('canvas'); c.width = img.width; c.height = img.height;
@@ -43,7 +43,8 @@ const DetectorV2 = (() => {
       const ds = cur.map((p) => dist(L, p)).sort((a, b) => a - b), thr = Math.max(1.0, 2.5 * ds[ds.length >> 1]);
       const nxt = cur.filter((p) => dist(L, p) <= thr); if (nxt.length < 6) break; cur = nxt; L = fitLine(cur);
     }
-    return { L, inl: cur.length };
+    const rms = Math.sqrt(cur.reduce((a, p) => a + dist(L, p) ** 2, 0) / cur.length);
+    return { L, inl: cur.length / pts.length, rms };
   }
   const inter = (A, B) => {
     const d = A.dx * B.dy - A.dy * B.dx; if (Math.abs(d) < 1e-6) return null;
@@ -51,7 +52,7 @@ const DetectorV2 = (() => {
   };
   function refine(G, q) { // q in G px, TL TR BR BL
     const cx = q.reduce((a, p) => a + p[0], 0) / 4, cy = q.reduce((a, p) => a + p[1], 0) / 4;
-    const R = Math.max(6, Math.round(0.02 * Math.max(G.w, G.h))), lines = [], support = [];
+    const R = Math.max(6, Math.round(0.02 * Math.max(G.w, G.h))), lines = [], support = [], quality = [];
     for (let s = 0; s < 4; s++) {
       const a = q[s], b = q[(s + 1) % 4], ex = b[0] - a[0], ey = b[1] - a[1], len = Math.hypot(ex, ey);
       let nx = -ey / len, ny = ex / len; // make normal point outward
@@ -67,9 +68,12 @@ const DetectorV2 = (() => {
         if (Number.isNaN(best)) continue; tot++;
         if (best > 12) { strong++; pts.push([px + nx * bo, py + ny * bo]); }
       }
-      support.push(tot ? strong / tot : 0);
-      if (pts.length < 8) { lines.push(null); continue; }
-      lines.push(robustFit(pts).L);
+      const sup = tot ? strong / tot : 0; support.push(sup);
+      if (pts.length < 8) { lines.push(null); quality.push(0); continue; }
+      const f = robustFit(pts);
+      // side quality: share of profiles that agree on one straight edge, penalised by scatter
+      const qy = sup * f.inl * Math.exp(-f.rms / 1.5); quality.push(qy);
+      lines.push(f.inl >= 0.55 ? f.L : null); // texture-dominated side: keep stage-1 line
     }
     const out = [];
     for (let i = 0; i < 4; i++) {
@@ -77,7 +81,7 @@ const DetectorV2 = (() => {
       const p = A && B ? inter(A, B) : null;
       out.push(p && Math.hypot(p[0] - q[i][0], p[1] - q[i][1]) < 1.6 * R ? p : q[i]);
     }
-    return { q: out, support };
+    return { q: out, support, quality };
   }
   function detect(imageData) {
     const cv = self.cv, canvas = toCanvas(imageData);
@@ -85,17 +89,18 @@ const DetectorV2 = (() => {
     const G = grayOf(canvas, REF_LONG), k = G.k;
     let q = base.q.map((p) => [p.x * k, p.y * k]);
     let r = refine(G, q); r = refine(G, r.q); // two passes
-    const sup = r.support, mean = sup.reduce((a, b) => a + b, 0) / 4;
-    const conf = Math.max(0, Math.min(1, 0.6 * mean + 0.4 * Math.min(...sup) + 0.05 * Math.min(base.votes || 0, 4)));
+    const Q = r.quality, mean = Q.reduce((a, b) => a + b, 0) / 4;
+    const conf = Math.max(0, Math.min(1, 0.5 * mean + 0.5 * Math.min(...Q)));
+    if (conf < MIN_CONF) return null;
     return { corners: r.q.map((p) => [p[0] / k, p[1] / k]), confidence: +conf.toFixed(3), method: base.method };
   }
-  /** DocSnap 3.3: refine an existing v1 result (skips re-running Vision.detect). base: {q:[{x,y}], votes} */
+  /** DocSnap: refine an existing v1 result (skips re-running Vision.detect). Returns conf even when low (caller decides). */
   function refineFrom(canvas, base) {
     const G = grayOf(canvas, REF_LONG), k = G.k;
     let r = refine(G, base.q.map((p) => [p.x * k, p.y * k])); r = refine(G, r.q);
-    const sup = r.support, mean = sup.reduce((a, b) => a + b, 0) / 4;
-    const conf = Math.max(0, Math.min(1, 0.6 * mean + 0.4 * Math.min(...sup) + 0.05 * Math.min(base.votes || 0, 4)));
-    return { corners: r.q.map((p) => [p[0] / k, p[1] / k]), confidence: +conf.toFixed(3) };
+    const Q = r.quality, mean = Q.reduce((a, b) => a + b, 0) / 4;
+    const conf = Math.max(0, Math.min(1, 0.5 * mean + 0.5 * Math.min(...Q)));
+    return { corners: r.q.map((p) => [p[0] / k, p[1] / k]), confidence: +conf.toFixed(3), noPage: conf < MIN_CONF };
   }
   return { detect, refineFrom };
 })();

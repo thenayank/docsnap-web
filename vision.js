@@ -1,6 +1,7 @@
 'use strict';
 /* DocSnap vision: document detection, perspective correction and scan filters (OpenCV.js). */
 const Vision = (() => {
+  const FRAME_MAX = 0.90;         // 3.3.1 hard rule: a quad covering > 90% of the frame is the photo itself, never a page (independent of confidence)
   const OUT_LONG = 2500;          // output long side (px)
   const SRC_MAX_LONG = 4096;      // iOS canvas limit ~16.7 MP; 4096×3072 = 12.6 MP
   const SRC_MAX_AREA = 16000000;
@@ -118,9 +119,10 @@ const Vision = (() => {
   }
 
   /** Detect the document quad. Returns {q:[TL,TR,BR,BL] in src px, method} or null. */
-  function detect(cv, src) {
+  function detect(cv, src, opts = {}) {
     const { c: small, k } = scaled(src, 1000);
     const W = small.width, H = small.height, A = W * H;
+    const sc = Math.max(W, H) / 1000, ks = (n) => Math.max(3, Math.round(n * sc) | 1); // kernels scale with frame size (live frames are ~480px)
     const mats = [];
     const M = (m) => (mats.push(m), m);
     const cands = [];
@@ -157,7 +159,7 @@ const Vision = (() => {
           pd[i] = Math.round(255 * bright * Math.max(neut, sat * 0.85));
         }
       }
-      cv.GaussianBlur(paperScore, paperScore, new cv.Size(7, 7), 0);
+      cv.GaussianBlur(paperScore, paperScore, new cv.Size(ks(7), ks(7)), 0);
       const paperBin = M(new cv.Mat());
       cv.threshold(paperScore, paperBin, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU);
       // if Otsu picked a low bar (too much paper), raise it
@@ -166,9 +168,9 @@ const Vision = (() => {
         if (nz > 0.75) cv.threshold(paperScore, paperBin, 160, 255, cv.THRESH_BINARY);
         else if (nz < 0.05) cv.threshold(paperScore, paperBin, 90, 255, cv.THRESH_BINARY);
       }
-      const k15 = M(cv.getStructuringElement(cv.MORPH_ELLIPSE, new cv.Size(15, 15)));
-      const k9 = M(cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(9, 9)));
-      const k5 = M(cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(5, 5)));
+      const k15 = M(cv.getStructuringElement(cv.MORPH_ELLIPSE, new cv.Size(ks(15), ks(15))));
+      const k9 = M(cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(ks(9), ks(9))));
+      const k5 = M(cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(ks(5), ks(5))));
       // close gaps from text/spiral teeth, then open to drop thin clutter
       cv.morphologyEx(paperBin, paperBin, cv.MORPH_CLOSE, k15);
       cv.morphologyEx(paperBin, paperBin, cv.MORPH_OPEN, k9);
@@ -195,41 +197,58 @@ const Vision = (() => {
         cv.Canny(blur, edgeMap, Math.max(5, 0.66 * md), Math.min(255, Math.max(0.66 * md + 10, 1.33 * md)));
         cv.dilate(edgeMap, edgeMap, k5);
       }
+      // side support (3.3.1): a real page edge is a brightness STEP across the side. Canny on bright, low-contrast
+      // phone photos (paper on a light bedsheet) often finds nothing, so measure the step directly on the blurred image.
+      const bd8 = blur.data;
+      const lumAt = (x, y) => { const xi = Math.round(x), yi = Math.round(y); return xi < 0 || yi < 0 || xi >= W || yi >= H ? -1 : bd8[yi * W + xi]; };
       const sideSupport = (quad) => {
-        const ed = edgeMap.data, sup = [];
+        const ed = edgeMap.data, sup = [], cx = (quad[0].x + quad[1].x + quad[2].x + quad[3].x) / 4, cy = (quad[0].y + quad[1].y + quad[2].y + quad[3].y) / 4;
+        const off = Math.max(3, Math.round(Math.min(W, H) * 0.006));
         for (let i = 0; i < 4; i++) {
-          const a = quad[i], b = quad[(i + 1) % 4]; let hit = 0, n = 0;
+          const a = quad[i], b = quad[(i + 1) % 4], L = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+          let nx = -(b.y - a.y) / L, ny = (b.x - a.x) / L;
+          if (((a.x + b.x) / 2 - cx) * nx + ((a.y + b.y) / 2 - cy) * ny < 0) { nx = -nx; ny = -ny; } // outward
+          let hit = 0, n = 0;
           for (let t = 0.06; t <= 0.94; t += 0.03) {
-            const x = Math.round(a.x + (b.x - a.x) * t), y = Math.round(a.y + (b.y - a.y) * t);
+            const x = a.x + (b.x - a.x) * t, y = a.y + (b.y - a.y) * t;
             if (x < 3 || y < 3 || x >= W - 3 || y >= H - 3) continue; // border sides: no evidence either way
-            n++; if (ed[y * W + x]) hit++;
+            n++;
+            const vin = lumAt(x - nx * off, y - ny * off), vout = lumAt(x + nx * off, y + ny * off);
+            const step = vin >= 0 && vout >= 0 && Math.abs(vin - vout) >= 9;
+            if (step || ed[Math.round(y) * W + Math.round(x)] && vin >= 0 && vout >= 0 && Math.abs(vin - vout) >= 5) hit++;
           }
-          sup.push(n ? hit / n : 0.7);
+          sup.push(n ? hit / n : 0.5);
         }
         const mean = sup.reduce((x, y) => x + y, 0) / 4;
         return 0.5 * Math.min(...sup) + 0.5 * mean;
       };
+      var rejN = {}; var rej = (k) => { rejN[k] = (rejN[k] || 0) + 1; };
       const consider = (quad, method, kind) => {
         quad = order(quad);
         const qa = polyArea(quad);
-        if (qa < 0.05 * A || qa > 0.95 * A) return;          // only reject near-total frame fill
-        if (!angleOk(quad)) return;
+        if (qa < 0.05 * A || qa > FRAME_MAX * A) { rej(1); return; }     // 3.3.1: never accept a quad covering > FRAME_MAX of the frame
+        if (!angleOk(quad)) { rej(2); return; }
         const { corners, sides } = borderTouch(quad, W, H, 5);
-        if (corners >= 4 || sides >= 3) return;               // glued to the photo frame
+        if (corners >= 4 || sides >= 3) { rej(3); return; }               // glued to the photo frame
         // large + multi-border is usually the whole photo, not the page (notebook fail case)
-        if (qa > 0.82 * A && (corners >= 2 || sides >= 2)) return;
-        if (qa > 0.90 * A && corners >= 1) return;
+        if (qa > 0.82 * A && (corners >= 2 || sides >= 2)) { rej(4); return; }
+        if (qa > 0.90 * A && corners >= 1) { rej(5); return; }
+        // 3.3.1: quads hugging the frame (two corners on the border, or big + one corner / one glued side) are the photo, not a page
+        if (corners >= 2) { rej(6); return; }
+        if (corners === 1 && qa > 0.6 * A) { rej(7); return; }
+        if (sides >= 1 && qa > 0.7 * A) { rej(8); return; }
         const ptsMat = cv.matFromArray(4, 1, cv.CV_32FC2, quad.flatMap((p) => [p.x, p.y]));
         const rRect = cv.minAreaRect(ptsMat); ptsMat.delete();
         const rArea = Math.abs(rRect.size.width * rRect.size.height) || 1;
         const rectFit = Math.min(qa, rArea) / Math.max(qa, rArea);
-        if (rectFit < 0.78) return;
+        if (rectFit < 0.78) { rej(9); return; }
 
         const inside = quadLuma(gray, quad);
         const outside = outsideLuma(gray, quad, Math.max(12, Math.round(Math.min(W, H) * 0.03)));
         const contrast = (inside - outside) / 255;           // paper should be brighter
-        if (inside < 110) return;                            // too dark to be paper
-        if (contrast < 0.02 && qa > 0.55 * A) return;        // big & no contrast = frame
+        const insideSat = quadLuma(S, quad);
+        if (inside < 110 && !(insideSat > 90 && inside > 60 && Math.abs(inside - outside) > 30 && qa > 0.15 * A)) { rej(10); return; } // too dark to be paper (but a saturated book cover is fine)
+        if (contrast < 0.02 && qa > 0.55 * A) { rej(11); return; }        // big & no contrast = frame
 
         const paperBoost = inside > 185 ? 1.35 : inside > 160 ? 1.2 : inside > 130 ? 1.0 : 0.7;
         const contrastBoost = contrast > 0.12 ? 1.2 : contrast > 0.06 ? 1.05 : contrast > 0.02 ? 0.9 : 0.5;
@@ -242,9 +261,10 @@ const Vision = (() => {
         else if (frac < 0.85) sizeScore = 0.9 + frac; // bigger is better in the page range
         else sizeScore = 1.6 - (frac - 0.85) * 3;     // gentle drop above 85%
         // Paper-mask helps on cluttered scenes; don't let loose minAreaRect beat a tight poly on clean scans.
-        const methodBoost = method.startsWith('paper') ? (kind === 'poly' ? 1.25 : 0.7) : method.startsWith('pscore') || method.startsWith('white') ? 1.05 : 1;
+        const methodBoost = method === 'book' ? 1.3 : method === 'hough' ? 0.8 : method.startsWith('paper') ? (kind === 'poly' ? 1.25 : 0.7) : method.startsWith('pscore') || method.startsWith('white') ? 1.05 : 1;
         const support = sideSupport(quad);
-        const supportPen = 0.35 + 0.65 * support;
+        if (support < 0.2 && qa > 0.35 * A) { rej(12); return; }            // 3.3.1: big quad whose sides cross no real edge = not a page
+        const supportPen = 0.15 + 0.85 * support;
         const score = supportPen * sizeScore * rectFit * rectFit * aspectScore(quad) * paperBoost * contrastBoost * borderPen * methodBoost * (kind === 'rect' ? 0.75 : 1.1);
         cands.push({
           q: quad, score, method: method + ':' + kind,
@@ -259,7 +279,7 @@ const Vision = (() => {
           const cnt = cs.get(i);
           const hull = new cv.Mat(); cv.convexHull(cnt, hull, false, true);
           const ha = cv.contourArea(hull);
-          if (ha > 0.05 * A && ha < 0.92 * A) {
+          if (ha > 0.05 * A && ha < FRAME_MAX * A) {
             const peri = cv.arcLength(hull, true);
             let quad = null;
             for (const e of [0.015, 0.02, 0.03, 0.045, 0.06, 0.08]) {
@@ -290,6 +310,12 @@ const Vision = (() => {
         const e = new cv.Mat(); cv.Canny(blur, e, Math.max(5, lo), Math.min(255, Math.max(lo + 10, hi)));
         cv.morphologyEx(e, e, cv.MORPH_CLOSE, k9); cv.dilate(e, e, k5);
         collect(e, 'canny', cv.RETR_LIST); e.delete();
+      }
+      for (const [m, lo, hi, name] of [[blur, 8, 24, 'canny'], [S, 20, 60, 'sat']]) {
+        const e = new cv.Mat(); const sm = new cv.Mat(); cv.GaussianBlur(m, sm, new cv.Size(5, 5), 0);
+        cv.Canny(sm, e, lo, hi); sm.delete();
+        cv.morphologyEx(e, e, cv.MORPH_CLOSE, k9); cv.dilate(e, e, k5);
+        collect(e, name, cv.RETR_EXTERNAL); e.delete();
       }
       // 2b) Hough lines → quads from the two dominant line families (handles occluded corners / merged clutter)
       try {
@@ -342,29 +368,54 @@ const Vision = (() => {
         }
       } catch (err) { /* Hough unavailable — classic candidates still apply */ }
       // 3) Otsu on V−S whiteness and on blur
-      const white = M(new cv.Mat()); cv.subtract(V, S, white); cv.GaussianBlur(white, white, new cv.Size(7, 7), 0);
+      const white = M(new cv.Mat()); cv.subtract(V, S, white); cv.GaussianBlur(white, white, new cv.Size(ks(7), ks(7)), 0);
       for (const [m, name] of [[blur, 'otsu'], [white, 'white'], [paperScore, 'pscore']]) {
         const t = new cv.Mat(); cv.threshold(m, t, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU);
         cv.morphologyEx(t, t, cv.MORPH_CLOSE, k15); cv.morphologyEx(t, t, cv.MORPH_OPEN, k9);
         collect(t, name, cv.RETR_EXTERNAL); t.delete();
       }
       // 4) adaptive
-      const at = new cv.Mat(); cv.adaptiveThreshold(blur, at, 255, cv.ADAPTIVE_THRESH_MEAN_C, cv.THRESH_BINARY, 151, -6);
+      const at = new cv.Mat(); cv.adaptiveThreshold(blur, at, 255, cv.ADAPTIVE_THRESH_MEAN_C, cv.THRESH_BINARY, ks(151), -6);
       cv.morphologyEx(at, at, cv.MORPH_CLOSE, k9); cv.morphologyEx(at, at, cv.MORPH_OPEN, k9);
       collect(at, 'adaptive', cv.RETR_EXTERNAL); at.delete();
+      // 5) open book (3.3.1): two facing pages are found as two quads split by the gutter shadow → merge into ONE document
+      if (!opts.noBook) {
+        const D = 0.06 * Math.max(W, H), dd = (p, q) => Math.hypot(p.x - q.x, p.y - q.y);
+        const pages = cands.filter((c) => c.meta.qa > 0.06 && c.meta.qa < 0.5).slice(0, 60);
+        const seen = new Set();
+        for (const a of pages) for (const b of pages) {
+          if (a === b) continue;
+          let m = null;
+          if (dd(a.q[1], b.q[0]) < D && dd(a.q[2], b.q[3]) < D && b.q[1].x > a.q[1].x) m = [a.q[0], b.q[1], b.q[2], a.q[3]];      // side by side
+          else if (dd(a.q[3], b.q[0]) < D && dd(a.q[2], b.q[1]) < D && b.q[3].y > a.q[3].y) m = [a.q[0], a.q[1], b.q[2], b.q[3]]; // stacked (book held sideways)
+          if (!m) continue;
+          const ra = a.meta.qa / b.meta.qa; if (ra < 0.6 || ra > 1.67) continue; // facing pages are about the same size
+          const asp = (q, side) => { const w = (dd(q[0], q[1]) + dd(q[3], q[2])) / 2, h = (dd(q[0], q[3]) + dd(q[1], q[2])) / 2; return side ? h / w : w / h; };
+          const sbs = m[1] === b.q[1]; // side-by-side: each page taller than wide; stacked: each page wider than tall
+          if (![a.q, b.q].every((q) => { const r = asp(q, sbs); return r > 1.15 && r < 2.5; })) continue;
+          const key = m.map((p) => `${Math.round(p.x / 8)},${Math.round(p.y / 8)}`).join('|'); if (seen.has(key)) continue; seen.add(key);
+          consider(m.map((p) => ({ ...p })), 'book', 'poly');
+        }
+      }
     } finally {
       mats.forEach((m) => { try { m.delete(); } catch {} });
       free(small);
     }
+    // 3.3.1: weak winners on textured scenes (cloth, tiles) are not pages
+    for (let i = cands.length - 1; i >= 0; i--) if (cands[i].score < 0.08) cands.splice(i, 1);
+    if (opts.debug && !cands.length) return { rej: rejN, q: null };
     if (!cands.length) return null;
     for (const c of cands) {
-      c.votes = cands.filter((o) =>
-        Math.max(...o.q.map((p, i) => Math.hypot(p.x - c.q[i].x, p.y - c.q[i].y))) < 0.045 * Math.max(W, H)
-      ).length;
+      // votes: agreeing candidates; the many near-identical Hough quads (text lines) count once
+      const nb = cands.filter((o) => Math.max(...o.q.map((p, i) => Math.hypot(p.x - c.q[i].x, p.y - c.q[i].y))) < 0.045 * Math.max(W, H));
+      const once = (o) => o.method.startsWith('hough') || o.method.startsWith('book');
+      c.votes = nb.filter((o) => !once(o)).length + (nb.some((o) => o.method.startsWith('hough')) ? 1 : 0) + (nb.some((o) => o.method.startsWith('book')) ? 1 : 0);
     }
     cands.sort((a, b) => b.score * (1 + 0.3 * Math.min(b.votes, 5)) - a.score * (1 + 0.3 * Math.min(a.votes, 5)));
     const best = cands[0];
-    return { q: best.q.map((p) => ({ x: p.x / k, y: p.y / k })), method: best.method, votes: best.votes, meta: best.meta };
+    const out = { q: best.q.map((p) => ({ x: p.x / k, y: p.y / k })), method: best.method, votes: best.votes, meta: best.meta, score: best.score };
+    if (opts.debug) out.cands = cands.slice(0, 8).map((c) => ({ q: c.q.map((p) => ({ x: p.x / k, y: p.y / k })), score: c.score, votes: c.votes, method: c.method, meta: c.meta }));
+    return out;
   }
 
 
@@ -672,5 +723,7 @@ const Vision = (() => {
     } finally { src.delete(); if (out) out.delete(); }
   }
 
-  return { decode, scaled, free, detect, warp, filter, order, FILTERS, OUT_LONG };
+  /** Hard full-frame rule shared by every path (live outline, auto-capture, still detect, v2 refine). */
+  function fullFrame(q, W, H) { return !q || polyArea(q) > FRAME_MAX * W * H; }
+  return { decode, scaled, free, detect, warp, filter, order, fullFrame, FILTERS, OUT_LONG, FRAME_MAX };
 })();

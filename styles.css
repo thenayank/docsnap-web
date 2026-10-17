@@ -368,7 +368,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;margin-top:-12px
 .revnav .round{width:44px;height:44px}
 .view[inert]{pointer-events:none}
 /* crop: "Finding edges…" shimmer while the worker detects */
-#crop.finding #cropHint{background:linear-gradient(90deg,rgba(255,255,255,.45) 0%,#fff 50%,rgba(255,255,255,.45) 100%);background-size:200% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:shimmer 1.1s linear infinite}
+#crop.finding #cropHint{background:linear-gradient(90deg,var(--label3) 0%,var(--label) 50%,var(--label3) 100%);background-size:200% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:shimmer 1.1s linear infinite}
 #crop.finding #cropWrap::after{content:'';position:absolute;inset:0;pointer-events:none;background:linear-gradient(180deg,transparent 0%,rgba(45,212,191,.18) 50%,transparent 100%);background-size:100% 200%;animation:scanline 1.2s ease-in-out infinite}
 #cropWrap{position:relative}
 @keyframes shimmer{from{background-position:200% 0}to{background-position:-200% 0}}
@@ -423,7 +423,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;margin-top:-12px
 .campill{display:flex;align-items:center;height:36px;border-radius:18px;padding:0 4px}
 .campill button{height:36px;min-width:44px;padding:0 12px;font-size:14px;font-weight:600;color:rgba(255,255,255,.62);letter-spacing:.2px;display:flex;align-items:center;justify-content:center;transition:color .2s}
 .campill button .i{width:18px;height:18px}
-.campill button.on{color:#ffd60a}
+.campill button.on{color:#fff}
 .campill .sep{width:1px;height:16px;background:rgba(255,255,255,.22)}
 .campillmsg{position:absolute;left:50%;top:calc(56px + var(--sat));transform:translateX(-50%);z-index:2;margin:0;padding:6px 14px;border-radius:14px;font-size:13px;font-weight:600;color:#fff;background:rgba(0,0,0,.4);-webkit-backdrop-filter:blur(20px);backdrop-filter:blur(20px);white-space:nowrap;transition:opacity .25s,background .25s}
 .campillmsg.hold{background:rgba(45,212,191,.92);color:#002b26}
@@ -486,7 +486,6 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;margin-top:-12px
 .bt .warn{top:calc(100% + 8px);bottom:auto;left:0;right:0;background:rgba(255,159,10,.95)}
 .bt .num{bottom:8px;left:8px;transform:none;z-index:2}
 .bt .ov{top:8px;left:8px}
-#cropHint{font-size:15px;color:rgba(255,255,255,.88);line-height:1.35}
 #cropAuto.hl{color:#2dd4bf}#cropAuto.hl .i{filter:drop-shadow(0 0 6px rgba(45,212,191,.7))}
 .revnote{margin:6px 16px 0;text-align:center;font-size:13px;color:rgba(255,255,255,.72)}
 .filters.dark{gap:12px;padding:4px 16px 12px}
@@ -499,3 +498,49 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;margin-top:-12px
 .tb.danger:disabled{opacity:.35}
 .sheet .cell + .cell::before{left:52px}
 .bt .stage{position:absolute;left:0;right:0;top:calc(50% + 22px);text-align:center;font-size:12px;font-weight:600;color:rgba(255,255,255,.85);text-shadow:0 1px 3px rgba(0,0,0,.8)}
+/* ---------- 3.3.1 crop screen (theme-aware, filmstrip) — matches docsnap-design/mockups/crop ---------- */
+.cropv{background:var(--bg)}
+.cropv .nav .nbtn{color:var(--accent)}
+.cropv .cropwrap{margin:16px 20px 0;padding:0;border-radius:12px;background:#636366;overflow:hidden}
+#cropHint.crophint{align-self:center;margin:12px auto 0;min-width:256px;max-width:calc(100% - 40px);height:24px;line-height:24px;padding:0 14px;border-radius:12px;background:var(--bg2);text-align:center;font-size:13px;color:var(--label);opacity:.9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#cropHint.crophint.warn{color:#ff9f0a;font-weight:600;opacity:1}
+.cropstrip{display:flex;gap:8px;justify-content:center;align-items:center;height:80px;margin-top:12px;padding:0 16px;background:var(--bg2);border-top:.5px solid var(--sep);overflow-x:auto;scrollbar-width:none}
+.cropstrip::-webkit-scrollbar{display:none}
+.cropstrip button{position:relative;flex:0 0 auto;width:48px;height:64px;border-radius:8px;padding:0;background:var(--fill);transition:transform .2s var(--spring)}
+.cropstrip button::after{content:'';position:absolute;inset:-6px -2px}  /* 44pt+ hit area */
+.cropstrip button:active{transform:scale(.94)}
+.cropstrip img{width:100%;height:100%;object-fit:cover;border-radius:8px;display:block}
+.cropstrip button.on{outline:2px solid var(--accent);outline-offset:2px}
+.cropstrip .n{position:absolute;left:50%;bottom:4px;transform:translateX(-50%);min-width:16px;height:14px;padding:0 4px;border-radius:7px;background:rgba(0,0,0,.5);color:#fff;font-size:11px;font-weight:600;line-height:14px;text-align:center}
+.cropstrip .dot{position:absolute;right:-3px;top:-3px;width:10px;height:10px;border-radius:5px;background:#ff9f0a;box-shadow:0 0 0 2px var(--bg2)}
+.cropstrip .add{background:none;border:1.5px dashed var(--label3);color:var(--label2);display:flex;align-items:center;justify-content:center}
+.cropstrip .add .i{width:22px;height:22px}
+.cropstrip:not([hidden])+.croptb{border-top:0}
+.croptb{background:var(--bg2)}
+.croptb .tb{color:var(--label)}
+.croptb .tb.hl,#cropAuto.hl{color:var(--accent)}
+.bt .odot{position:absolute;left:8px;top:8px;width:12px;height:12px;border-radius:6px;background:#ff9f0a;box-shadow:0 0 0 2px #1c1c1e;z-index:2}
+/* camera Book toggle + caption */
+.campill button.book{gap:5px;margin-left:2px;height:28px;padding:0 10px;border-radius:14px;color:rgba(255,255,255,.62)}
+.campill button.book .i{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.7}
+.campill button.book i{width:8px;height:8px;border-radius:4px;background:currentColor;display:none}
+.campill button.book.on{background:#2dd4bf;color:#00332e}
+.campill button.book.on i{display:block}
+.bookcap{position:absolute;left:0;right:0;top:calc(46px + var(--sat));margin:0;text-align:center;font-size:13px;color:rgba(255,255,255,.8);opacity:0;pointer-events:none;z-index:2}
+.bookcap.show{opacity:1}
+.bookcap.fade{opacity:0;transition:opacity .3s ease-out}
+.cam.capon .campillmsg{opacity:0!important}
+/* 3.3.1 review grid follows the system theme (light / dark) */
+.batv{background:var(--bg);color:var(--label)}
+.batv .nav .nbtn{color:var(--accent)}
+.batv .bt{background:var(--bg2);box-shadow:var(--shadow)}
+.batv .bt img{box-shadow:0 4px 14px rgba(0,0,0,.18)}
+.batv .bt .num{background:rgba(0,0,0,.55)}
+.batv .bt .odot{box-shadow:0 0 0 2px var(--bg2)}
+.batv .bt.add{border-color:var(--label3);color:var(--label2);box-shadow:none;background:transparent}
+.batv .bt .stage{color:var(--label);text-shadow:none}
+.batv .batbar{background:var(--bar);border-top:.5px solid var(--sep)}
+.batv .batbar .tb{color:var(--accent)}
+.batv .batbar .shutter{border-color:var(--accent)}
+.batv .batbar .shutter span{background:var(--accent)}
+@media (prefers-color-scheme:dark){.batv .bt img{box-shadow:0 6px 22px rgba(0,0,0,.55)}.batv .batbar .shutter{border-color:#fff}.batv .batbar .shutter span{background:#fff}}
