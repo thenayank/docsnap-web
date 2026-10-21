@@ -40,6 +40,7 @@ function camChrome() {
 function openCam(fresh = true) {
   if (fresh) CAM.replace = null;
   if (fresh) { scan.pages = []; scan.i = 0; scan.returnTo = (curView === 'doc' || curView === 'page') && current ? current.id : null; scan.src = 'live'; }
+  if (fresh) { scan.vault = CAM.vaultNext || null; CAM.vaultNext = null; if (scan.vault) scan.returnTo = null; vaultChrome(); } // 3.5 My Docs scan
   CAM.cool = null; CAM.q = CAM.disp = null; CAM.hist = []; CAM.trayHold = 0; CAM.queued = false; CAM.readyAt = CAM.detResume = 0; disarm();
   $('camPerm').hidden = true; camChrome(); renderTray(false); $('cam').classList.toggle('replacing', !!CAM.replace); camMsg('Starting camera…'); camHint();
   show('cam', 'up');
@@ -220,8 +221,11 @@ async function camShoot(auto) {
     const pg = scan.pages[scan.pages.length - 1]; if (pg) pg.auto = !!auto;
     const n = scan.pages.length;
     CAM.capMsg = true; clearTimeout(CAM.capT);
-    setTimeout(() => { if (curView === 'cam') camMsg(`Captured · ${n}`); }, 120); // pill rolls during the re-arm (+120 → +300)
-    CAM.capT = setTimeout(() => { CAM.capMsg = false; }, LIFT.done);
+    // 3.5 My Docs: a two-sided card asks for the back, then goes straight to review after the second side
+    const vs = scan.vault && scan.vault.sides === 2;
+    if (vs && n >= 2) { CAM.shooting = false; await lift.landed; camStop(); openBatch(); return; }
+    setTimeout(() => { if (curView === 'cam') camMsg(vs ? 'Ab peeche ka hissa' : `Captured · ${n}`, vs); }, 120); // pill rolls during the re-arm (+120 → +300)
+    CAM.capT = setTimeout(() => { CAM.capMsg = false; }, vs ? 2600 : LIFT.done);
     CAM.lastShot = performance.now() - CAM.t0Shot;
     CAM.shooting = false;
     CAM.trayHold = (CAM.trayHold || 0) + 1; renderTray(false); // the new page joins the tray when its sheet lands
@@ -350,13 +354,14 @@ async function camLeave() {
     if (!v) return;
   }
   camStop(); scan.pages = []; freeBatchUrls();
-  scan.returnTo ? openDoc(scan.returnTo) : show('home', 'down');
+  scanExit();
 }
 $('camShutter').onclick = () => camShoot(false);
 $('camDone').onclick = () => { if (!scan.pages.length) return; camStop(); openBatch(); };
 $('camClose').onclick = camLeave;
 $('camTray').onclick = async () => {
   if (scan.pages.length) return camRemoveLast(true);
+  if (scan.vault) return; // camera only for My Docs (S10)
   const f = await pickFiles('image/*', true); if (f.length) { batchAdd(f); renderTray(true); }
 };
 $('camAuto').onclick = () => { settings.camAuto = !CAM.auto; saveSettings(); disarm(); camChrome(); };
@@ -383,7 +388,7 @@ $('camTorch').onclick = async () => {
   try { await CAM.track.applyConstraints({ advanced: [{ torch: on }] }); CAM.torch = on; } catch { toast('Flash isn’t available', 'err'); }
   camChrome();
 };
-$('camNative').onclick = async () => { const f = await pickFiles('image/*', false, 'environment'); if (f.length) { camStop(); openBatch(); batchAdd(f); } };
+$('camNative').onclick = async () => { if (scan.vault) return; const f = await pickFiles('image/*', false, 'environment'); if (f.length) { camStop(); openBatch(); batchAdd(f); } };
 $('camRetry').onclick = () => { $('camPerm').hidden = true; camMsg('Starting camera…'); camStart(); };
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) { if (CAM.stream) camStop(); }

@@ -33,6 +33,7 @@
 <meta name="apple-mobile-web-app-title" content="DocSnap">
 <link rel="stylesheet" href="tokens.css">
 <link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="mydocs.css">
 </head>
 <body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true" id="sprite">
@@ -71,6 +72,10 @@
     <symbol id="i-tab-tools-fill" viewBox="0 0 24 24"><path stroke="none" fill="currentColor" fill-rule="evenodd" d="M9.937 3.01Q9.27 2.625 8.5 2.625L5.5 2.625Q4.73 2.625 4.062 3.01Q3.395 3.395 3.01 4.062Q2.625 4.73 2.625 5.5L2.625 8.5Q2.625 9.27 3.01 9.938Q3.395 10.605 4.062 10.99Q4.73 11.375 5.5 11.375L8.5 11.375Q9.27 11.375 9.938 10.99Q10.605 10.605 10.99 9.938Q11.375 9.27 11.375 8.5L11.375 5.5Q11.375 4.73 10.99 4.062Q10.605 3.395 9.937 3.01ZM17.7 2.625Q17.786 2.625 17.871 2.642Q17.955 2.659 18.035 2.692Q18.114 2.725 18.186 2.772Q18.258 2.82 18.319 2.881L21.119 5.681Q21.18 5.742 21.228 5.814Q21.275 5.886 21.308 5.965Q21.341 6.045 21.358 6.129Q21.375 6.214 21.375 6.3L21.375 8.5Q21.375 9.27 20.99 9.937Q20.605 10.605 19.938 10.99Q19.27 11.375 18.5 11.375L15.5 11.375Q14.73 11.375 14.062 10.99Q13.395 10.605 13.01 9.938Q12.625 9.27 12.625 8.5L12.625 5.5Q12.625 4.73 13.01 4.062Q13.395 3.395 14.063 3.01Q14.73 2.625 15.5 2.625L17.7 2.625ZM18.45 5.3Q18.45 5.367 18.483 5.425Q18.517 5.483 18.575 5.517Q18.633 5.55 18.7 5.55L20.5 5.55Q20.649 5.55 20.787 5.607Q20.925 5.664 21.03 5.77Q21.136 5.875 21.193 6.013Q21.25 6.151 21.25 6.3Q21.25 6.449 21.193 6.587Q21.136 6.725 21.03 6.83Q20.925 6.936 20.787 6.993Q20.649 7.05 20.5 7.05L18.7 7.05Q18.231 7.05 17.825 6.816Q17.419 6.581 17.184 6.175Q16.95 5.769 16.95 5.3L16.95 3.5Q16.95 3.351 17.007 3.213Q17.064 3.075 17.17 2.97Q17.275 2.864 17.413 2.807Q17.551 2.75 17.7 2.75Q17.849 2.75 17.987 2.807Q18.125 2.864 18.23 2.97Q18.336 3.075 18.393 3.213Q18.45 3.351 18.45 3.5L18.45 5.3ZM8.5 12.625Q9.27 12.625 9.938 13.01Q10.605 13.395 10.99 14.062Q11.375 14.73 11.375 15.5L11.375 18.5Q11.375 19.27 10.99 19.938Q10.605 20.605 9.937 20.99Q9.27 21.375 8.5 21.375L5.5 21.375Q4.73 21.375 4.062 20.99Q3.395 20.605 3.01 19.938Q2.625 19.27 2.625 18.5L2.625 15.5Q2.625 14.73 3.01 14.063Q3.395 13.395 4.062 13.01Q4.73 12.625 5.5 12.625L8.5 12.625ZM19.938 13.01Q19.27 12.625 18.5 12.625L15.5 12.625Q14.73 12.625 14.062 13.01Q13.395 13.395 13.01 14.062Q12.625 14.73 12.625 15.5L12.625 18.5Q12.625 19.27 13.01 19.938Q13.395 20.605 14.062 20.99Q14.73 21.375 15.5 21.375L18.5 21.375Q19.27 21.375 19.937 20.99Q20.605 20.605 20.99 19.938Q21.375 19.27 21.375 18.5L21.375 15.5Q21.375 14.73 20.99 14.063Q20.605 13.395 19.938 13.01Z"/></symbol>
     <symbol id="i-tab-search" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" style="stroke-width:var(--icon-stroke,1.75)"><path d="M4 10.5a6.5 6.5 0 1 0 13 0a6.5 6.5 0 1 0-13 0z"/><path d="M15.4 15.4 20.5 20.5"/><path d="M7.6 9.2a3 3 0 0 1 1.9-1.9"/></g></symbol>
     <symbol id="i-tab-search-fill" viewBox="0 0 24 24"><path stroke="none" fill="currentColor" fill-rule="evenodd" d="M4.113 6.812Q3.125 8.524 3.125 10.5Q3.125 12.476 4.113 14.188Q5.101 15.899 6.812 16.887Q8.524 17.875 10.5 17.875Q12.476 17.875 14.188 16.887Q14.483 16.716 14.757 16.524L19.616 21.384Q19.792 21.56 20.022 21.655Q20.251 21.75 20.5 21.75Q20.749 21.75 20.978 21.655Q21.208 21.56 21.384 21.384Q21.56 21.208 21.655 20.978Q21.75 20.749 21.75 20.5Q21.75 20.251 21.655 20.022Q21.56 19.792 21.384 19.616L16.524 14.757Q16.716 14.483 16.887 14.188Q17.875 12.476 17.875 10.5Q17.875 8.524 16.887 6.812Q15.899 5.101 14.188 4.113Q12.476 3.125 10.5 3.125Q8.524 3.125 6.812 4.113Q5.101 5.101 4.113 6.812ZM7.795 7.495Q7.168 8.122 6.888 8.963Q6.865 9.033 6.856 9.107Q6.847 9.18 6.852 9.254Q6.857 9.327 6.877 9.399Q6.896 9.47 6.929 9.536Q6.962 9.602 7.008 9.66Q7.053 9.719 7.109 9.767Q7.165 9.815 7.229 9.852Q7.293 9.888 7.363 9.912Q7.505 9.959 7.654 9.948Q7.802 9.937 7.936 9.871Q8.069 9.804 8.167 9.691Q8.265 9.578 8.312 9.437Q8.48 8.932 8.856 8.556Q9.232 8.18 9.737 8.012Q9.878 7.965 9.991 7.867Q10.104 7.769 10.171 7.636Q10.237 7.502 10.248 7.354Q10.259 7.205 10.212 7.063Q10.188 6.993 10.152 6.929Q10.115 6.865 10.067 6.809Q10.019 6.753 9.96 6.708Q9.902 6.662 9.836 6.629Q9.77 6.596 9.699 6.577Q9.627 6.557 9.554 6.552Q9.48 6.547 9.407 6.556Q9.333 6.565 9.263 6.588Q8.422 6.868 7.795 7.495Z"/></symbol>
+    <symbol id="i-tab-mydocs" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" style="stroke-width:var(--icon-stroke,1.75)"><path d="M12 2.8 19.5 5.6V11c0 4.7-3.1 8.5-7.5 10.2C7.6 19.5 4.5 15.7 4.5 11V5.6z"/><path d="M9 8.5h3.6l2.4 2.4V15.5H9z"/><path d="M12.6 8.5v2.4H15"/></g></symbol>
+    <symbol id="i-tab-mydocs-fill" viewBox="0 0 24 24"><path fill="currentColor" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round" d="M12 2.8 19.5 5.6V11c0 4.7-3.1 8.5-7.5 10.2C7.6 19.5 4.5 15.7 4.5 11V5.6z"/><path fill="var(--canvas)" stroke="none" d="M8.4 7.9h4.45l2.75 2.75V16.1H8.4z"/><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" d="M12.6 8.1v2.6H15.3"/></symbol>
+    <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></symbol>
+    <symbol id="i-faceid" viewBox="0 0 24 24"><path d="M3.5 8V6a2.5 2.5 0 0 1 2.5-2.5h2M16 3.5h2A2.5 2.5 0 0 1 20.5 6v2M20.5 16v2a2.5 2.5 0 0 1-2.5 2.5h-2M8 20.5H6A2.5 2.5 0 0 1 3.5 18v-2"/><path d="M8.5 9v1.5M15.5 9v1.5M12 9v3.5h-1"/><path d="M9 15.5c1.7 1.4 4.3 1.4 6 0"/></symbol>
     <symbol id="i-tab-settings" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" style="stroke-width:var(--icon-stroke,1.75)"><path d="M6 4v5M6 13v7M12 4v9M12 17v3M18 4v2M18 10v10"/><path d="M4 11h4M10 15h4M16 8h4"/></g></symbol>
     <symbol id="i-tab-settings-fill" viewBox="0 0 24 24"><path stroke="none" fill="currentColor" fill-rule="evenodd" d="M6 20.875Q6.174 20.875 6.335 20.808Q6.496 20.742 6.619 20.619Q6.742 20.496 6.808 20.335Q6.875 20.174 6.875 20L6.875 13.625L7 13.625Q7.703 13.625 8.312 13.273Q8.922 12.922 9.273 12.312Q9.625 11.703 9.625 11Q9.625 10.297 9.273 9.688Q8.922 9.078 8.312 8.727Q7.703 8.375 7 8.375L6.875 8.375L6.875 4Q6.875 3.826 6.808 3.665Q6.742 3.504 6.619 3.381Q6.496 3.258 6.335 3.192Q6.174 3.125 6 3.125Q5.826 3.125 5.665 3.192Q5.504 3.258 5.381 3.381Q5.258 3.504 5.192 3.665Q5.125 3.826 5.125 4L5.125 8.375L5 8.375Q4.297 8.375 3.687 8.727Q3.078 9.078 2.727 9.688Q2.375 10.297 2.375 11Q2.375 11.703 2.727 12.312Q3.078 12.922 3.688 13.273Q4.297 13.625 5 13.625L5.125 13.625L5.125 20Q5.125 20.174 5.192 20.335Q5.258 20.496 5.381 20.619Q5.504 20.742 5.665 20.808Q5.826 20.875 6 20.875ZM12 20.875Q12.174 20.875 12.335 20.808Q12.496 20.742 12.619 20.619Q12.742 20.496 12.808 20.335Q12.875 20.174 12.875 20L12.875 17.625L13 17.625Q13.703 17.625 14.312 17.273Q14.922 16.922 15.273 16.312Q15.625 15.703 15.625 15Q15.625 14.297 15.273 13.688Q14.922 13.078 14.312 12.727Q13.703 12.375 13 12.375L12.875 12.375L12.875 4Q12.875 3.826 12.808 3.665Q12.742 3.504 12.619 3.381Q12.496 3.258 12.335 3.192Q12.174 3.125 12 3.125Q11.826 3.125 11.665 3.192Q11.504 3.258 11.381 3.381Q11.258 3.504 11.192 3.665Q11.125 3.826 11.125 4L11.125 12.375L11 12.375Q10.297 12.375 9.688 12.727Q9.078 13.078 8.727 13.688Q8.375 14.297 8.375 15Q8.375 15.703 8.727 16.312Q9.078 16.922 9.688 17.273Q10.297 17.625 11 17.625L11.125 17.625L11.125 20Q11.125 20.174 11.192 20.335Q11.258 20.496 11.381 20.619Q11.504 20.742 11.665 20.808Q11.826 20.875 12 20.875ZM18 20.875Q18.174 20.875 18.335 20.808Q18.496 20.742 18.619 20.619Q18.742 20.496 18.808 20.335Q18.875 20.174 18.875 20L18.875 10.625L19 10.625Q19.703 10.625 20.312 10.273Q20.922 9.922 21.273 9.312Q21.625 8.703 21.625 8Q21.625 7.297 21.273 6.687Q20.922 6.078 20.312 5.727Q19.703 5.375 19 5.375L18.875 5.375L18.875 4Q18.875 3.826 18.808 3.665Q18.742 3.504 18.619 3.381Q18.496 3.258 18.335 3.192Q18.174 3.125 18 3.125Q17.826 3.125 17.665 3.192Q17.504 3.258 17.381 3.381Q17.258 3.504 17.192 3.665Q17.125 3.826 17.125 4L17.125 5.375L17 5.375Q16.297 5.375 15.688 5.727Q15.078 6.078 14.727 6.688Q14.375 7.297 14.375 8Q14.375 8.703 14.727 9.312Q15.078 9.922 15.688 10.273Q16.297 10.625 17 10.625L17.125 10.625L17.125 20Q17.125 20.174 17.192 20.335Q17.258 20.496 17.381 20.619Q17.504 20.742 17.665 20.808Q17.826 20.875 18 20.875Z"/></symbol>
     <symbol id="i-aadhaar" viewBox="0 0 24 24"><path d="M16.0 5.5H5.0a2.5 2.5 0 0 0-2.5 2.5V15.0a2.5 2.5 0 0 0 2.5 2.5H17.0a2.5 2.5 0 0 0 2.5-2.5V9.0z"/><path d="M16.0 5.5v2.5a1 1 0 0 0 1 1h2.5"/><circle cx="7.5" cy="10.5" r="1.8"/><path d="M5 15c.5-1.2 1.4-1.8 2.5-1.8s2 .6 2.5 1.8"/><path d="M12.5 10h3M12.5 13h2"/><path d="M21.5 9v10a1.5 1.5 0 0 1-1.5 1.5H6"/></symbol>
@@ -127,6 +132,8 @@
   <div class="scroll">
     <div class="ltitle"><h1 class="large">Documents</h1><button class="roundbtn" id="homeMore" aria-label="View options"><svg class="i"><use href="#i-more"/></svg></button></div>
     <p class="lsub tnum" id="homeSub"></p>
+    <label class="search"><svg class="i"><use href="#i-search"/></svg><input id="search" type="search" placeholder="Names, folders and text in pages" autocomplete="off" enterkeyhint="search" aria-label="Search documents"></label>
+    <div id="searchBody" hidden></div>
     <div id="homeHero"></div>
     <div id="homeFolders"></div>
     <div class="sh" id="homeRecentH"><h2 id="homeListT">Recent</h2><span class="shr"><button class="link" id="homeFolderMore" hidden aria-label="Folder actions"><svg class="i"><use href="#i-more"/></svg></button><button class="link" id="homeSel">Select</button></span></div>
@@ -139,15 +146,8 @@
   </footer>
 </section>
 
-<!-- ============ TAB: Search (3.4) ============ -->
-<section id="searchv" class="view tabview" data-title="Search">
-  <header class="nav"><div class="nav-l"></div><div class="nav-t">Search</div><div class="nav-r"></div></header>
-  <div class="scroll">
-    <h1 class="large">Search</h1>
-    <label class="search"><svg class="i"><use href="#i-search"/></svg><input id="search" type="search" placeholder="Names, folders and text in pages" autocomplete="off" enterkeyhint="search"></label>
-    <div id="searchBody"></div>
-  </div>
-</section>
+<!-- ============ TAB: My Docs (3.5) — family document vault ============ -->
+<section id="mydocs" class="view tabview md" data-title="My Docs"><div class="m-scroll" id="mdMain"></div></section>
 
 <!-- ============ TAB: Tools ============ -->
 <section id="tools" class="view tabview" data-title="Tools">
@@ -210,13 +210,19 @@
     </div>
     <h2 class="ghead">Signature</h2>
     <div class="group"><button class="cell" data-tool="signature"><span class="ic c-amber"><svg class="i"><use href="#i-sign"/></svg></span><span class="ct"><b>My Signature</b></span><span class="val" id="setSigVal"></span><svg class="i chev"><use href="#i-chev"/></svg></button></div>
+    <h2 class="ghead">My Docs</h2>
+    <div class="group">
+      <button class="cell" id="setMdBackup"><span class="ic c-teal"><svg class="i"><use href="#i-tab-mydocs"/></svg></span><span class="ct"><b>Backup</b></span><span class="val" id="setMdBackupVal"></span><svg class="i chev"><use href="#i-chev"/></svg></button>
+      <button class="cell" id="setMdLock"><span class="ic c-slate"><svg class="i"><use href="#i-lock"/></svg></span><span class="ct"><b>Auto-lock</b></span><span class="val" id="setMdLockVal"></span><svg class="i chev"><use href="#i-chev"/></svg></button>
+      <button class="cell" id="setMdFace"><span class="ic c-slate"><svg class="i"><use href="#i-faceid"/></svg></span><span class="ct"><b>Face ID</b></span><span class="val" id="setMdFaceVal"></span><svg class="i chev"><use href="#i-chev"/></svg></button>
+    </div>
     <h2 class="ghead">Storage</h2>
     <div class="group">
       <div class="cell"><span class="ic c-red"><svg class="i"><use href="#i-storage"/></svg></span><span class="ct"><b>Used on this device</b></span><span class="val tnum" id="setStorage">–</span></div>
       <button class="cell danger" id="setWipe"><span class="ic c-red"><svg class="i"><use href="#i-trash"/></svg></span><span class="ct"><b>Delete All Documents</b></span></button>
     </div>
     <p class="foot"><svg class="i"><use href="#i-shield"/></svg> DocSnap keeps your documents only on this device. Add it to your Home Screen from Safari's Share menu to use it like an app, even offline.</p>
-    <p class="foot small about">DocSnap 3.4.0<br><span>Made in India</span></p>
+    <p class="foot small about">DocSnap 3.5.0<br><span>Made in India</span></p>
   </div>
 </section>
 
@@ -409,14 +415,20 @@
   </div>
   <footer class="cta row2"><button class="btn" id="ppSingle">Save Photo</button><button class="btn primary" id="ppSheet">Make A4 Sheet</button></footer>
 </section>
+<!-- ============ My Docs pushed / full-screen views (3.5) ============ -->
+<section id="mdflow" class="view md full"><div class="m-flow" id="mdFlow"></div></section>
+<section id="mddoc" class="view md"><div class="m-scroll" id="mdDocS"><div id="mdDoc" style="padding-bottom:110px"></div></div>
+  <nav class="m-acts" id="mdDocActs" aria-label="Document actions"><button class="on" data-a="share"><svg class="i" viewBox="0 0 24 24"><path d="M12 3.5v11M8 7.5l4-4 4 4"/><path d="M8 11H6.5A2.5 2.5 0 0 0 4 13.5v4.5a2.5 2.5 0 0 0 2.5 2.5h11A2.5 2.5 0 0 0 20 18v-4.5a2.5 2.5 0 0 0-2.5-2.5H16"/></svg>Share</button><button data-a="edit"><svg class="i" viewBox="0 0 24 24"><path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z"/><path d="m13.5 6.5 4 4"/></svg>Edit</button><button data-a="replace"><svg class="i" viewBox="0 0 24 24"><path d="M4.5 12a7.5 7.5 0 0 1 13-5.1L20 9.5M20 4.5v5h-5"/><path d="M19.5 12a7.5 7.5 0 0 1-13 5.1L4 14.5M4 19.5v-5h5"/></svg>Replace</button><button data-a="more"><svg class="i" viewBox="0 0 24 24"><circle cx="5.5" cy="12" r=".9"/><circle cx="12" cy="12" r=".9"/><circle cx="18.5" cy="12" r=".9"/></svg>More</button></nav></section>
+<section id="mdbackup" class="view md"><div class="m-scroll"><div id="mdBk" style="padding-bottom:110px"></div></div></section>
+<section id="mdbpw" class="view md full"><div id="mdPw" style="position:absolute;inset:0"></div></section>
 </div>
 
 <!-- ============ Tab bar ============ -->
 <nav class="tabbar" id="tabbar">
   <button class="tab on" data-tab="home"><svg class="i l"><use href="#i-tab-docs"/></svg><svg class="i f"><use href="#i-tab-docs-fill"/></svg><span>Documents</span></button>
-  <button class="tab" data-tab="tools"><svg class="i l"><use href="#i-tab-tools"/></svg><svg class="i f"><use href="#i-tab-tools-fill"/></svg><span>Tools</span></button>
+  <button class="tab" data-tab="mydocs" aria-label="My Docs"><svg class="i l"><use href="#i-tab-mydocs"/></svg><svg class="i f"><use href="#i-tab-mydocs-fill"/></svg><span>My Docs</span></button>
   <button class="scanbtn" id="tabScan" aria-label="Scan"><svg class="i"><use href="#i-scan"/></svg></button>
-  <button class="tab" data-tab="searchv"><svg class="i l"><use href="#i-tab-search"/></svg><svg class="i f"><use href="#i-tab-search-fill"/></svg><span>Search</span></button>
+  <button class="tab" data-tab="tools"><svg class="i l"><use href="#i-tab-tools"/></svg><svg class="i f"><use href="#i-tab-tools-fill"/></svg><span>Tools</span></button>
   <button class="tab" data-tab="settings"><svg class="i l"><use href="#i-tab-settings"/></svg><svg class="i f"><use href="#i-tab-settings-fill"/></svg><span>Settings</span></button>
 </nav>
 
@@ -426,6 +438,7 @@
 <div id="alert" class="alert" role="alertdialog" aria-modal="true"></div>
 <div id="busy" class="hud" hidden><div class="spin"></div><span id="busyMsg">Working…</span></div>
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
+<div id="mdCover" aria-hidden="true"><img src="icons/icon-180.png" alt=""></div>
 <label class="hapt" aria-hidden="true"><input type="checkbox" switch tabindex="-1" id="hapticSw"></label>
 <input type="file" id="fileCam" accept="image/*" capture="environment" hidden>
 
@@ -433,5 +446,7 @@
 <script src="app.js" defer></script>
 <script src="camera.js" defer></script>
 <script src="tools.js" defer></script>
+<script src="vault.js" defer></script>
+<script src="mydocs.js" defer></script>
 </body>
 </html>

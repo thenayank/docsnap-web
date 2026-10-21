@@ -47,7 +47,9 @@ const saveSettings = () => localStorage.setItem('settings', JSON.stringify(setti
 if (!settings.v34) { settings.v34 = 1; settings.layout = 'grid'; saveSettings(); }
 
 // ---------- navigation ----------
-const TABS = ['home', 'tools', 'searchv', 'settings'];
+const TABS = ['home', 'mydocs', 'tools', 'settings']; // 3.5: My Docs replaces the Search tab; Search is a field on Documents
+/** The tab a non-tab view belongs to (keeps the tab bar highlight right when it is shown). */
+const MD_VIEWS = ['mydocs', 'mddoc', 'mdbackup', 'mdbpw', 'mdflow'];
 let curView = 'home';
 const navStack = [];
 /** Show a view. mode: push | pop | up | down | tab | none */
@@ -72,8 +74,11 @@ function show(id, mode = 'push') {
     if (anim[1]) { to.classList.add(anim[1]); setTimeout(() => clear(to), 460); }
   }
   curView = id;
-  $('tabbar').classList.toggle('hide', !TABS.includes(id));
-  document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('on', t.dataset.tab === id));
+  // 3.5: My Docs → Backup is a pushed page that keeps the tab bar (its parent tab stays selected)
+  const tabOf = id === 'mdbackup' ? ((typeof MD !== 'undefined' && MD.st.bkFrom) || 'settings') : id;
+  $('tabbar').classList.toggle('hide', !TABS.includes(tabOf));
+  document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('on', t.dataset.tab === tabOf));
+  document.body.classList.toggle('in-md', MD_VIEWS.includes(id));
   syncHistory();
 }
 // ---- History integration: iOS edge-swipe / browser Back = in-app Back; Back closes sheets & alerts first ----
@@ -97,6 +102,7 @@ function appBack() {
   if (curView === 'cam') return camLeave();
   if (curView === 'page' && !$('adjust').hidden) return $('adjCancel').click();
   if (curView === 'tool') return $('tool').querySelector('[data-back]').click();
+  if (MD_VIEWS.includes(curView) && typeof MD !== 'undefined') return MD.back();
   const b = VIEW_BACK[curView] && $(VIEW_BACK[curView]); if (b) b.click();
 }
 window.addEventListener('popstate', (e) => {
@@ -114,7 +120,7 @@ function goTab(id) {
   navStack.length = 0;
   if (id === 'home') return renderHome('tab');
   if (id === 'settings') renderSettings();
-  if (id === 'searchv') renderSearch();
+  if (id === 'mydocs') { if (typeof MD === 'undefined') return; show('mydocs', 'tab'); return MD.open(true); }
   if (id === 'tools' && typeof renderToolsHome === 'function') renderToolsHome();
   show(id, 'tab');
 }
@@ -442,6 +448,7 @@ async function renderHome(mode = 'pop') {
   const list = $('docList'); list.classList.toggle('selmode', homeSel.on);
   const isEmpty = !all.length;
   $('homeRecentH').hidden = isEmpty; $('homeMore').hidden = isEmpty;
+  if ($('search').value.trim()) { renderSearch(); }
   if (isEmpty) { $('homeHero').replaceChildren(); $('homeFolders').replaceChildren(); homeSel.all = []; list.replaceChildren(emptyHome()); return; }
   // hero = the latest scan (outside #docList, so selecting/merging only ever touches the grid)
   const hero = !activeFolder && !homeSel.on ? all[0] : null;
@@ -518,6 +525,7 @@ function swipeRow(d, img, meta, snip) {
   return row;
 }
 let searchT; $('search').addEventListener('input', () => { clearTimeout(searchT); searchT = setTimeout(renderSearch, 180); });
+$('search').addEventListener('keydown', (e) => { if (e.key === 'Escape') { $('search').value = ''; renderSearch(); } });
 // ---------- Search tab (3.4) ----------
 let searchFolder = '';
 function markText(text, q) {
@@ -528,6 +536,10 @@ function markText(text, q) {
 }
 async function renderSearch() {
   const raw = $('search').value.trim(), q = raw.toLowerCase();
+  // 3.5: Search lives at the top of Documents. While a query is typed, results replace the hero / folders / grid.
+  const was = $('home').classList.contains('searching');
+  $('home').classList.toggle('searching', !!q); $('searchBody').hidden = !q;
+  if (!q) { $('searchBody').replaceChildren(); if (was) renderHome('none'); return; }
   const all = (await DB.all()).sort((a, b) => (b.updated || b.created) - (a.updated || a.created));
   const folders = await allFolders(all), body = $('searchBody');
   if (searchFolder && !folders.includes(searchFolder)) searchFolder = '';
@@ -583,12 +595,13 @@ async function deleteDoc(d) {
 async function docActions(d) {
   const v = await menu(d.name, [
     { label: 'Share PDF', value: 'share', icon: 'share' }, { label: 'Rename', value: 'rename', icon: 'pencil' },
-    { label: 'Move to Folder', value: 'move', icon: 'folder' }, { label: 'Delete', value: 'delete', icon: 'trash', danger: true }],
+    { label: 'Move to Folder', value: 'move', icon: 'folder' }, { label: 'Move to My Docs', value: 'vault', icon: 'lock' }, { label: 'Delete', value: 'delete', icon: 'trash', danger: true }],
   `${plural(d.pages.length, 'page')} · ${relDate(d.updated || d.created)}`);
   if (v === 'share') { const w = await shareMenu(d); return w && shareChoice(d, w); }
   if (v === 'rename') { if (await renameDoc(d)) curView === 'doc' ? openDoc(d.id, 'none') : renderHome('none'); }
   if (v === 'move') { await moveDoc(d); if (curView === 'doc') openDoc(d.id, 'none'); }
   if (v === 'delete') return deleteDoc(d);
+  if (v === 'vault' && typeof MD !== 'undefined') return MD.moveFromDocuments(await DB.get(d.id));
 }
 
 // ---------- Document view (with long-press drag to reorder) ----------
@@ -962,6 +975,7 @@ $('placeDone').onclick = async () => {
 
 // ---------- Settings ----------
 async function renderSettings() {
+  if (typeof MD !== 'undefined') MD.settingsRows();
   $('setFilterVal').textContent = Object.fromEntries(FILTERS)[settings.filter];
   $('setLangVal').textContent = Object.fromEntries(LANGS)[settings.lang];
   $('setPageSizeVal').textContent = PAGE_SIZE_LABEL[settings.pageSize || 'original'];
@@ -1189,15 +1203,21 @@ async function nextScanPhoto() {
       Vision.free(r.raw);
       if (scan.pending.length) { toast('Photo skipped'); return nextScanPhoto(); }
       if (scan.pages.length) return openReview();
-      if (scan.returnTo) return openDoc(scan.returnTo);
-      show('home', 'down');
+      scanExit();
     }
   });
 }
 async function warpDone(raw, q) {
   const w = await vWarp(raw, q); Vision.free(raw); return blobToCanvas(w.orig);
 }
-const scan = { pages: [], i: 0, pending: [], returnTo: null, filter: 'magic', src: 'cam' };
+const scan = { pages: [], i: 0, pending: [], returnTo: null, filter: 'magic', src: 'cam', vault: null };
+/** Leave the scanner without saving: back to the document it was adding to, My Docs (vault scans), or Documents. */
+function scanExit() {
+  if (scan.vault) { scan.vault = null; vaultChrome(); return MD.scanCancelled(); }
+  return scan.returnTo ? openDoc(scan.returnTo) : show('home', 'down');
+}
+/** 3.5: a My Docs scan is camera-only (S10) and never offers Photos import or adding to Documents. */
+function vaultChrome() { ['cam', 'batch', 'review'].forEach((v) => $(v).classList.toggle('vault', !!scan.vault)); }
 
 // ---------- Batch scan (3.2): shoot/pick pages back-to-back, fix only the ones that need it ----------
 let batchSeq = 0, batchUrls = [];
@@ -1495,7 +1515,7 @@ async function batchLeave() {
     const v = await alertBox({ title: 'Discard this scan?', message: `${plural(n, 'page')} ${n > 1 ? 'haven’t' : 'hasn’t'} been saved yet.`, actions: [{ label: 'Keep Scanning', value: false, style: 'b' }, { label: 'Discard', value: true, style: 'd' }] });
     if (!v) return;
   }
-  scan.pages = []; freeBatchUrls(); scan.returnTo ? openDoc(scan.returnTo) : show('home', 'down');
+  scan.pages = []; freeBatchUrls(); scanExit();
 }
 async function batchNext() {
   if (!scan.pages.length) return;
@@ -1795,7 +1815,7 @@ async function reviewLeave() {
   const n = scan.pages.length;
   const v = await alertBox({ title: 'Discard this scan?', message: `${plural(n, 'page')} ${n > 1 ? 'haven’t' : 'hasn’t'} been saved yet.`, actions: [{ label: 'Keep Scanning', value: false, style: 'b' }, { label: 'Discard', value: true, style: 'd' }] });
   if (!v) return;
-  scan.pages = []; scan.returnTo ? openDoc(scan.returnTo) : show('home', 'down');
+  scan.pages = []; scanExit();
 }
 async function recropReview(idx) {
   const p = scan.pages[idx]; if (!p) return;
@@ -1834,12 +1854,13 @@ $('revRotate').onclick = async () => {
 $('revDel').onclick = async () => {
   if (scan.pages.length === 1) {
     if (!await confirmDelete('Discard this scan?', 'Nothing has been saved yet.')) return;
-    scan.pages = []; return scan.returnTo ? openDoc(scan.returnTo) : show('home', 'down');
+    scan.pages = []; return scanExit();
   }
   scan.pages.splice(scan.i, 1); if (scan.i >= scan.pages.length) scan.i = scan.pages.length - 1;
   showReviewPage();
 };
 $('revDone').onclick = async () => {
+  if (scan.vault) return vaultDone();
   busy(`Saving ${scan.pages.length} page${scan.pages.length > 1 ? 's' : ''}…`);
   try {
     // Save instantly: pages whose full-res render isn't ready yet use the on-screen preview for a moment
@@ -1863,6 +1884,18 @@ $('revDone').onclick = async () => {
     finishPending(doc.id);
   } catch (e) { busy(); toast('Couldn’t save: ' + e.message, 'err'); }
 };
+
+/** 3.5 My Docs: full-quality final pages go straight to the encrypted vault (in memory only), never to the Documents DB. */
+async function vaultDone() {
+  const v = scan.vault; busy('Preparing…');
+  try {
+    clearTimeout(preT); VW.q = VW.q.filter((j) => (j.prio === 0 ? true : (j.rej(new Error('cancelled')), false)));
+    const blobs = [];
+    for (const p of scan.pages) { const f = p.filter || scan.filter; blobs.push(p._final && p._finalF === f ? p._final : await vFilter(p.orig, f, p.bc, null, 0.92, 0)); }
+    scan.pages = []; scan.vault = null; freeBatchUrls(); vaultChrome(); busy();
+    await MD.saveScan(blobs, v);
+  } catch (e) { busy(); toast('Couldn’t save: ' + e.message, 'err'); }
+}
 
 // ---------- Text (OCR) ----------
 function setOcrLang(v) { document.querySelectorAll('#ocrLang button').forEach((b) => b.classList.toggle('on', b.dataset.v === v)); }
