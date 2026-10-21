@@ -24,7 +24,16 @@ function icon(name, cls = '') {
   const u = document.createElementNS('http://www.w3.org/2000/svg', 'use'); u.setAttribute('href', '#i-' + name);
   s.append(u); return s;
 }
-const haptic = () => { try { navigator.vibrate && navigator.vibrate(8); } catch {} };
+/** 3.4 haptics. Android: navigator.vibrate. iOS Safari has no vibrate API; iOS 18 plays the system "selection" tick when a
+ *  native <input type=checkbox switch> is toggled through its <label>. Undocumented → harmless no-op elsewhere. NEEDS DEVICE TEST.
+ *  Only five moments get a tick: shutter, crop snap, full-swipe delete, reorder lift, export success. */
+const HAPTIC_MS = { shutter: 10, snap: 6, delete: 14, lift: 8, success: [10, 60, 14] };
+function haptic(kind = 'snap') {
+  try {
+    if (navigator.vibrate) { navigator.vibrate(HAPTIC_MS[kind] || 8); return; }
+    const sw = document.getElementById('hapticSw'); if (sw && sw.parentElement) sw.parentElement.click();
+  } catch {}
+}
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // ---------- settings ----------
@@ -32,17 +41,19 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  *  3.3.2: pure v2 rule — v1's score is a heuristic, not a calibrated confidence, so it no longer overrides the flag. */
 const CONF_FLAG = 0.5; // 3.3.3: detector-v3 confidence, pure rule for pages and books (orange dot + live 'Page found' gate)
 const isLow = (conf) => !(conf >= CONF_FLAG);
-const settings = Object.assign({ filter: 'magic', lang: 'eng', layout: 'list' }, JSON.parse(localStorage.getItem('settings') || '{}'));
+const settings = Object.assign({ filter: 'magic', lang: 'eng', layout: 'grid' }, JSON.parse(localStorage.getItem('settings') || '{}'));
 const saveSettings = () => localStorage.setItem('settings', JSON.stringify(settings));
+// 3.4: the paper grid is the new default; migrate once, then respect whatever the user picks
+if (!settings.v34) { settings.v34 = 1; settings.layout = 'grid'; saveSettings(); }
 
 // ---------- navigation ----------
-const TABS = ['home', 'tools', 'settings'];
+const TABS = ['home', 'tools', 'searchv', 'settings'];
 let curView = 'home';
 const navStack = [];
 /** Show a view. mode: push | pop | up | down | tab | none */
 function show(id, mode = 'push') {
   if (curView === 'cam' && id !== 'cam' && typeof camStop === 'function') camStop();
-  if (id !== 'home' && typeof homeSel !== 'undefined' && homeSel.on) { homeSel.on = false; homeSel.ids.clear(); $('homeSelBar').hidden = true; $('docList').classList.remove('selmode'); $('homeSel').textContent = 'Select'; $('homeNavT').textContent = 'Documents'; $('viewToggle').classList.remove('txt'); updateLayoutBtn(); }
+  if (id !== 'home' && typeof homeSel !== 'undefined' && homeSel.on) { homeSel.on = false; homeSel.ids.clear(); homeSelChrome(); }
   const from = $(curView), to = $(id);
   if (id === curView) { to.classList.add('active'); return; }
   const clear = (v) => v.classList.remove('in-push', 'out-push', 'in-pop', 'out-pop', 'in-up', 'out-down', 'in-fade');
@@ -103,6 +114,8 @@ function goTab(id) {
   navStack.length = 0;
   if (id === 'home') return renderHome('tab');
   if (id === 'settings') renderSettings();
+  if (id === 'searchv') renderSearch();
+  if (id === 'tools' && typeof renderToolsHome === 'function') renderToolsHome();
   show(id, 'tab');
 }
 // collapse large titles on scroll
@@ -110,18 +123,23 @@ document.querySelectorAll('.view').forEach((v) => {
   const sc = v.querySelector('.scroll'); if (!sc) return;
   sc.addEventListener('scroll', () => v.classList.toggle('scrolled', sc.scrollTop > 36), { passive: true });
 });
-// press feedback on primary buttons
-document.addEventListener('pointerdown', (e) => { if (e.target.closest('.btn.primary,.scanbtn,.shutter')) haptic(); }, { passive: true });
 
 // ---------- toasts & HUD ----------
 function toast(msg, kind = 'ok', opt = {}) {
   const t = $('toast'); t.className = 'toast' + (kind === 'err' ? ' err' : '') + (opt.action ? ' act' : '');
   t.replaceChildren(icon(kind === 'err' ? 'x' : 'check'), el('span', { textContent: msg }),
-    opt.action ? el('button', { class: 'tact', onclick: (e) => { e.stopPropagation(); clearTimeout(toast._t); t.classList.remove('show'); opt.onAction && opt.onAction(); } }, opt.action) : null);
-  // never cover an open action sheet: sit just above it
-  const sh = $('sheet'); t.style.bottom = sh.classList.contains('on') ? `${innerHeight - sh.getBoundingClientRect().top + 12}px` : '';
+    ...(opt.action ? [el('button', { class: 'tact', onclick: (e) => { e.stopPropagation(); clearTimeout(toast._t); t.classList.remove('show'); opt.onAction && opt.onAction(); } }, opt.action)] : []));
+  placeToast();
   requestAnimationFrame(() => t.classList.add('show'));
   clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), opt.ms || 2600);
+}
+/** 3.4 toast-over-sheet fix: while a sheet is open (or opening), the toast sits 12pt above the sheet's resting top edge.
+ *  Uses offsetHeight, not getBoundingClientRect: mid-transition the sheet is still translated off-screen, which put the
+ *  toast on top of the export sheet's PDF row. Re-placed whenever a sheet opens or closes. */
+function placeToast() {
+  const t = $('toast'), sh = $('sheet');
+  if (sh.classList.contains('on')) t.style.bottom = `${sh.offsetHeight + 12}px`;
+  else t.style.bottom = TABS.includes(curView) ? '' : 'calc(var(--sab) + 92px)';
 }
 function busy(msg) {
   const b = $('busy');
@@ -136,11 +154,11 @@ function openSheet(build) {
     sheetResolve = res;
     const body = $('sheetBody'); body.replaceChildren();
     build(body, closeSheet);
-    $('scrim').classList.add('on'); $('sheet').classList.add('on'); $('toast').classList.remove('show');
+    $('scrim').classList.add('on'); $('sheet').classList.add('on'); placeToast();
   });
 }
 function closeSheet(v = null) {
-  $('scrim').classList.remove('on'); $('sheet').classList.remove('on'); $('sheet').style.transform = '';
+  $('scrim').classList.remove('on'); $('sheet').classList.remove('on'); $('sheet').style.transform = ''; placeToast();
   const r = sheetResolve; sheetResolve = null; if (r) r(v);
 }
 $('scrim').addEventListener('click', () => { if (sheetResolve) closeSheet(null); });
@@ -161,11 +179,12 @@ $('scrim').addEventListener('click', () => { if (sheetResolve) closeSheet(null);
   s.addEventListener('pointercancel', (e) => { if (e.pointerType !== 'touch') end(); });
 })();
 /** Action sheet. items: [{label, value, icon, danger, checked}] */
-function menu(title, items, sub) {
+function menu(title, items, sub, head) {
   return openSheet((body, close) => {
-    if (title) body.append(el('h3', { textContent: title }));
-    if (sub) body.append(el('p', { class: 'sub', textContent: sub }));
-    if (!title && !sub) body.append(el('div', { style: 'height:4px' }));
+    if (head) body.append(head);
+    else if (title) body.append(el('h3', { textContent: title }));
+    if (sub && !head) body.append(el('p', { class: 'sub', textContent: sub }));
+    if (!title && !sub && !head) body.append(el('div', { style: 'height:4px' }));
     body.append(el('div', { class: 'group' }, items.map((it) => el('button', { class: 'cell' + (it.danger ? ' danger' : ''), onclick: () => close(it.value) },
       it.icon ? el('span', { class: 'ic' }, icon(it.icon)) : null, el('span', { class: 'ct' }, el('b', { textContent: it.label })),
       it.checked ? icon('check', 'check') : null))));
@@ -206,7 +225,7 @@ function pickFiles(accept, multiple = false, capture) {
 }
 async function deliver(files) {
   if (navigator.canShare && navigator.canShare({ files })) {
-    try { await navigator.share({ files }); return; } catch (e) { if (e.name === 'AbortError') return; }
+    try { await navigator.share({ files }); doneHud(files.length > 1 ? `${files.length} files shared` : 'Shared'); return; } catch (e) { if (e.name === 'AbortError') return; }
   }
   for (const f of files) {
     const a = el('a', { href: URL.createObjectURL(f), download: f.name });
@@ -214,7 +233,14 @@ async function deliver(files) {
     setTimeout(() => URL.revokeObjectURL(a.href), 20000);
     await sleep(300);
   }
-  toast(files.length > 1 ? `${files.length} files saved` : 'Saved to Downloads');
+  toast(files.length > 1 ? `${files.length} files saved` : 'Saved to Downloads'); haptic('success');
+}
+/** Export success: a non-blocking HUD whose check draws itself (M13), plus the success haptic. */
+function doneHud(msg) {
+  haptic('success');
+  document.querySelectorAll('.hud.ok').forEach((h) => h.remove());
+  const h = el('div', { class: 'hud ok', role: 'status' }, icon('check', 'draw'), el('span', { textContent: msg }));
+  document.body.append(h); setTimeout(() => { h.style.transition = 'opacity 250ms'; h.style.opacity = '0'; setTimeout(() => h.remove(), 260); }, 1400);
 }
 const canvasToBlob = (c, q = 0.88, type = 'image/jpeg') => new Promise((r) => c.toBlob(r, type, q));
 async function blobToCanvas(blob, maxSide = 0) {
@@ -312,9 +338,9 @@ const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
 
 // ---------- folders ----------
 function savedFolders() { try { return JSON.parse(localStorage.getItem('folders') || '[]'); } catch { return []; } }
-function setFolders(f) { localStorage.setItem('folders', JSON.stringify([...new Set(f)].sort())); }
+function setFolders(f) { localStorage.setItem('folders', JSON.stringify([...new Set(f)])); } // 3.4: keeps the user's order (folder cards)
 async function allFolders(docs) {
-  return [...new Set([...savedFolders(), ...(docs || await DB.all()).map((d) => d.folder).filter(Boolean)])].sort();
+  return [...new Set([...savedFolders(), ...(docs || await DB.all()).map((d) => d.folder).filter(Boolean).sort()])];
 }
 async function askNewFolder() {
   const n = await askText('New Folder', '', 'Create', 'Enter a name for this folder.');
@@ -322,76 +348,135 @@ async function askNewFolder() {
   setFolders([...savedFolders(), n]); return n;
 }
 
-// ---------- Home ----------
-const EMPTY_ILL = `<svg class="ill" viewBox="0 0 150 130" fill="none">
-  <rect x="38" y="14" width="64" height="86" rx="8" fill="var(--bg2)" stroke="var(--label3)" stroke-width="1.5" transform="rotate(-8 70 57)"/>
-  <rect x="50" y="20" width="64" height="86" rx="8" fill="var(--bg2)" stroke="var(--accent)" stroke-width="2"/>
-  <path d="M62 42h40M62 54h40M62 66h28" stroke="var(--label3)" stroke-width="3" stroke-linecap="round"/>
-  <path d="M40 108v-8a4 4 0 0 1 4-4h8M124 96h-8M128 100v8M44 124h-0" stroke="var(--accent)" stroke-width="3" stroke-linecap="round"/>
-  <circle cx="122" cy="28" r="4" fill="var(--accent)" opacity=".5"/><circle cx="32" cy="44" r="3" fill="var(--accent)" opacity=".35"/>
-  <path d="M128 52l2 5 5 2-5 2-2 5-2-5-5-2 5-2z" fill="var(--accent)"/></svg>`;
-const SEARCH_ILL = `<svg class="ill" viewBox="0 0 150 130" fill="none"><circle cx="66" cy="58" r="30" stroke="var(--label3)" stroke-width="5"/><path d="M88 80l24 24" stroke="var(--label3)" stroke-width="8" stroke-linecap="round"/></svg>`;
+// ---------- Home (3.4: latest-scan hero, folder cards, paper grid) ----------
+const EMPTY_ILL = `<svg class="ill ill-light" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 140" fill="none"><defs><filter id="es-e2-light" x="-30%" y="-30%" width="160%" height="170%" color-interpolation-filters="sRGB"><feDropShadow dx="0" dy="1" stdDeviation="1" flood-color="#111414" flood-opacity="0.08"/><feDropShadow dx="0" dy="3" stdDeviation="4" flood-color="#111414" flood-opacity="0.1"/><feDropShadow dx="0" dy="6" stdDeviation="9" flood-color="#111414" flood-opacity="0.14"/></filter></defs><g id="es-sheet-back" transform="rotate(5 86 70)"><rect x="58" y="31" width="56" height="76" rx="3" fill="#eef0ec" filter="url(#es-e2-light)"/></g><g id="es-sheet" class="es-sheet" transform="rotate(-6 80 72)"><path id="es-sheet-paper" d="M96 34H55a3 3 0 0 0-3 3V107a3 3 0 0 0 3 3H105a3 3 0 0 0 3-3V46z" fill="#ffffff" filter="url(#es-e2-light)"/><path id="es-sheet-fold" d="M96 34V44a2 2 0 0 0 2 2H108z" fill="#eef0ec"/><path id="es-sheet-lines" d="M61 49h20M61 61h38M61 69h34M61 77h38M61 85h26M61 98h14" stroke="#5c6466" stroke-width="1.75" stroke-linecap="round"/></g><path id="es-brackets" d="M40 40V28a6 6 0 0 1 6-6H58M102 22H114a6 6 0 0 1 6 6V40M120 104V116a6 6 0 0 1-6 6H102M58 122H46a6 6 0 0 1-6-6V104" stroke="#0a9c8c" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg><svg class="ill ill-dark" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 140" fill="none"><defs><filter id="esd-e2-dark" x="-30%" y="-30%" width="160%" height="170%" color-interpolation-filters="sRGB"><feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#000000" flood-opacity="0.5"/><feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#000000" flood-opacity="0.45"/></filter></defs><g id="esd-sheet-back" transform="rotate(5 86 70)"><rect x="58" y="31" width="56" height="76" rx="3" fill="#e4e5e1" filter="url(#esd-e2-dark)"/></g><g id="esd-sheet" class="es-sheet" transform="rotate(-6 80 72)"><path id="esd-sheet-paper" d="M96 34H55a3 3 0 0 0-3 3V107a3 3 0 0 0 3 3H105a3 3 0 0 0 3-3V46z" fill="#f7f7f5" filter="url(#esd-e2-dark)"/><path id="esd-sheet-fold" d="M96 34V44a2 2 0 0 0 2 2H108z" fill="#e4e5e1"/><path id="esd-sheet-lines" d="M61 49h20M61 61h38M61 69h34M61 77h38M61 85h26M61 98h14" stroke="#5c6466" stroke-width="1.75" stroke-linecap="round"/></g><path id="esd-brackets" d="M40 40V28a6 6 0 0 1 6-6H58M102 22H114a6 6 0 0 1 6 6V40M120 104V116a6 6 0 0 1-6 6H102M58 122H46a6 6 0 0 1-6-6V104" stroke="#2dd4bf" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+const SEARCH_ILL = `<svg class="ill" viewBox="0 0 160 140" fill="none" aria-hidden="true"><circle cx="72" cy="62" r="30" stroke="var(--ink-3s)" stroke-width="5"/><path d="M94 84l24 24" stroke="var(--ink-3s)" stroke-width="8" stroke-linecap="round"/></svg>`;
+const DEFAULT_FOLDERS = ['IDs', 'Bills', 'Medical'];
+if (localStorage.getItem('folders') == null) localStorage.setItem('folders', JSON.stringify(DEFAULT_FOLDERS));
+/** Folder tile icon + category colour, guessed from the name (Indian documents first). */
+function folderLook(name) {
+  const n = name.toLowerCase();
+  if (/\bids?\b|aadhaar|pan|licen[cs]e|passport|kyc|card/.test(n)) return ['id', 'var(--c-scan)'];
+  if (/bill|receipt|invoice|rent|tax|bank|gst/.test(n)) return ['bill', 'var(--c-protect)'];
+  if (/medic|health|doctor|hospital|lab|insur/.test(n)) return ['medical', 'var(--c-med)'];
+  if (/school|college|exam|marks|cert/.test(n)) return ['doc', 'var(--c-edit)'];
+  return ['folder', 'var(--c-convert)'];
+}
+const docBytes = (d) => d.pages.reduce((a, p) => a + ((p.img && p.img.size) || 0), 0);
 let homeFirst = true;
 function skeleton() {
-  return el('div', { class: 'dgrid' }, [0, 1, 2, 3].map(() => el('div', {}, el('div', { class: 'thumb sk' }), el('div', { class: 'sk l1' }), el('div', { class: 'sk l2' }))));
+  return el('div', { class: 'dgrid' }, [0, 1, 2, 3].map(() => el('div', { class: 'dc skc' }, el('div', { class: 'thumb sk' }), el('div', { class: 'sk l1' }), el('div', { class: 'sk l2' }))));
 }
-function updateLayoutBtn() {
-  $('viewToggle').replaceChildren(icon(settings.layout === 'grid' ? 'list' : 'grid'));
+/** A document thumbnail as real paper: the final crop, contained, with up to two sheets behind it for multi-page docs. */
+function paperStack(d, w, h) {
+  const p0 = d.pages[0], img = el('img', { alt: '', onload: function () { this.classList.add('ld'); fitPaper(this, w, h); } });
+  if (p0) img.src = url(p0.img);
+  const paper = el('span', { class: 'paper', style: `width:${w}px;height:${h}px` }, img);
+  const n = d.pages.length;
+  return el('span', { class: 'pstack', style: `width:${w}px;height:${h}px` },
+    n > 2 ? el('i', { class: 'sheetb b2' }) : null, n > 1 ? el('i', { class: 'sheetb b1' }) : null, paper);
 }
-$('viewToggle').onclick = () => { settings.layout = settings.layout === 'grid' ? 'list' : 'grid'; saveSettings(); renderHome('none'); };
+/** Size the paper to the page's own aspect ratio inside a w×h box (receipts stay tall, ID cards stay wide). */
+function fitPaper(img, w, h) {
+  const r = img.naturalWidth / img.naturalHeight; if (!r) return;
+  let pw = w, ph = w / r; if (ph > h) { ph = h; pw = h * r; }
+  const st = img.closest('.pstack'); if (!st) return;
+  const W = `${Math.round(pw)}px`, H = `${Math.round(ph)}px`;
+  st.style.width = W; st.style.height = H; const pp = st.querySelector('.paper'); pp.style.width = W; pp.style.height = H;
+}
+function pcount(n) { return n > 1 ? el('span', { class: 'pcount' }, icon('docs'), String(n)) : null; }
+function updateLayoutBtn() {}
+async function homeMore() {
+  const v = await menu('Documents', [
+    { label: 'Grid', value: 'grid', icon: 'grid', checked: settings.layout === 'grid' },
+    { label: 'List', value: 'list', icon: 'list', checked: settings.layout !== 'grid' },
+    { label: 'Select Documents', value: 'sel', icon: 'check-circle' },
+    { label: 'New Folder…', value: 'folder', icon: 'plus' }]);
+  if (v === 'grid' || v === 'list') { settings.layout = v; saveSettings(); renderHome('none'); }
+  if (v === 'sel') setHomeSel(true);
+  if (v === 'folder') { const n = await askNewFolder(); if (n) { activeFolder = n; renderHome('none'); } }
+}
+$('homeMore').onclick = homeMore;
+function heroCard(d) {
+  const ago = Date.now() - (d.updated || d.created), fresh = ago < 864e5;
+  const when = ago < 6e4 ? 'Just now' : ago < 36e5 ? `${Math.round(ago / 6e4)} min ago` : relDate(d.updated || d.created);
+  const edges = d.pages.some((p) => p.q || p.quad || (p.filter && p.filter !== 'original')), txt = d.pages.some((p) => (p.text || '').trim());
+  const ck = (t) => el('div', {}, icon('check'), t);
+  return el('div', { class: 'card hero', 'data-hero': d.id },
+    el('button', { class: 'well', 'aria-label': `Open ${d.name}`, onclick: () => openDoc(d.id) }, paperStack(d, 92, 128), pcount(d.pages.length)),
+    el('div', { class: 'info' },
+      el('div', { class: 'newtag' + (fresh ? '' : ' old') }, el('i'), fresh ? 'New' : 'Latest', el('span', { textContent: ` · ${when}` })),
+      el('div', { class: 'nm', textContent: d.name }),
+      el('div', { class: 'mt tnum', textContent: `${plural(d.pages.length, 'page')} · ${docSize(docBytes(d))}` }),
+      (edges || txt) ? el('div', { class: 'chk' }, edges ? ck('Edges cleaned') : null, txt ? ck('Text searchable') : null) : null,
+      el('div', { class: 'acts' },
+        el('button', { class: 'pillbtn', onclick: async () => { const w = await shareMenu(d); if (w) shareChoice(d, w); } }, icon('share'), 'Share'),
+        el('button', { class: 'circbtn', 'aria-label': 'More', onclick: () => docActions(d) }, icon('more')))));
+}
+function folderCards(folders, all) {
+  const box = el('div', { class: 'folders' }, folders.map((f) => {
+    const [ic, c] = folderLook(f), n = all.filter((d) => d.folder === f).length;
+    return el('button', { class: 'card fd' + (activeFolder === f ? ' on' : ''), 'aria-pressed': String(activeFolder === f), onclick: () => { activeFolder = activeFolder === f ? '' : f; renderHome('none'); } },
+      el('span', { class: 'tile', style: `--c:${c}` }, icon(ic)), el('span', { class: 'n tnum', textContent: n }), el('b', { textContent: f }));
+  }), el('button', { class: 'card fd add', 'aria-label': 'New folder', onclick: async () => { const n = await askNewFolder(); if (n) { activeFolder = n; renderHome('none'); } } },
+    el('span', { class: 'tile' }, icon('plus')), el('b', { textContent: 'New Folder' })));
+  return [el('div', { class: 'sh' }, el('h2', { textContent: 'Folders' }), el('span', { class: 'shr' },
+    el('button', { class: 'link', onclick: () => activeFolder ? folderActions(all) : menu('Folders', folders.map((f) => ({ label: f, value: f, icon: folderLook(f)[0] }))).then((v) => { if (v) { activeFolder = v; renderHome('none'); } }) }, activeFolder ? 'Edit' : 'See all'))), box];
+}
+function emptyHome() {
+  const e = el('div', { class: 'empty full', html: EMPTY_ILL });
+  e.append(el('h3', { textContent: 'Your scans live here' }), el('p', { textContent: 'Scan receipts, notes and IDs. Everything stays on this iPhone.' }),
+    el('button', { class: 'btn primary', onclick: () => startScan() }, icon('scan'), 'Scan a Document'),
+    el('button', { class: 'btn plain', onclick: importPhotos }, 'Import from Photos'));
+  return e;
+}
 async function renderHome(mode = 'pop') {
   if (homeFirst) { $('docList').replaceChildren(skeleton()); homeFirst = false; }
   if (mode !== 'none' && curView !== 'home') show('home', mode);
-  updateLayoutBtn();
   const all = (await DB.all()).sort((a, b) => (b.updated || b.created) - (a.updated || a.created));
   revokeUrls();
-  // folders
   const folders = await allFolders(all);
   if (activeFolder && !folders.includes(activeFolder)) activeFolder = '';
-  const fc = $('folders'); fc.replaceChildren();
-  const chip = (label, val, ic) => fc.append(el('button', { class: 'chip' + (activeFolder === val ? ' on' : ''), onclick: () => { activeFolder = val; renderHome('none'); } }, ic ? icon(ic) : null, label));
-  if (folders.length || all.length) {
-    chip('All', '');
-    folders.forEach((f) => chip(f, f, 'folder'));
-    fc.append(el('button', { class: 'chip', onclick: async () => { const n = await askNewFolder(); if (n) { activeFolder = n; renderHome('none'); } } }, icon('plus'), 'Folder'));
-    if (activeFolder) fc.append(el('button', { class: 'chip', onclick: () => folderActions(all) }, icon('more')));
-  }
-  // search
-  const q = $('search').value.trim().toLowerCase();
+  const week = all.filter((d) => Date.now() - d.created < 7 * 864e5).length;
+  $('homeSub').textContent = all.length ? (week ? `This week · ${plural(week, 'scan')}` : plural(all.length, 'document')) : '';
+  const list = $('docList'); list.classList.toggle('selmode', homeSel.on);
+  const isEmpty = !all.length;
+  $('homeRecentH').hidden = isEmpty; $('homeMore').hidden = isEmpty;
+  if (isEmpty) { $('homeHero').replaceChildren(); $('homeFolders').replaceChildren(); homeSel.all = []; list.replaceChildren(emptyHome()); return; }
+  // hero = the latest scan (outside #docList, so selecting/merging only ever touches the grid)
+  const hero = !activeFolder && !homeSel.on ? all[0] : null;
+  $('homeHero').replaceChildren(hero ? heroCard(hero) : '');
+  $('homeFolders').replaceChildren(...folderCards(folders, all));
   let docs = all.filter((d) => !activeFolder || d.folder === activeFolder);
-  const snippets = {};
-  if (q) {
-    docs = docs.filter((d) => {
-      if (d.name.toLowerCase().includes(q) || d.folder.toLowerCase().includes(q)) return true;
-      for (const p of d.pages) {
-        const t = p.text || ''; const i = t.toLowerCase().indexOf(q);
-        if (i >= 0) { snippets[d.id] = '…' + t.slice(Math.max(0, i - 24), i + q.length + 40).replace(/\s+/g, ' ') + '…'; return true; }
-      }
-      return false;
-    });
-  }
-  const list = $('docList'); list.classList.toggle('selmode', homeSel.on); homeSel.all = docs.map((d) => d.id);
+  if (hero) docs = docs.filter((d) => d.id !== hero.id);
+  if (homeSel.on) docs = all.filter((d) => !activeFolder || d.folder === activeFolder);
+  $('homeListT').textContent = activeFolder || 'Recent';
+  homeSel.all = docs.map((d) => d.id);
   if (!docs.length) {
-    const e = el('div', { class: 'empty', html: q ? SEARCH_ILL : EMPTY_ILL });
-    if (q) e.append(el('h3', { textContent: 'No Results' }), el('p', { textContent: `Nothing matches “${$('search').value.trim()}”. Text inside pages is searchable after you use Text on a document.` }));
-    else if (activeFolder) e.append(el('h3', { textContent: 'This folder is empty' }), el('p', { textContent: 'Scan something new, or move documents here from their ••• menu.' }), el('button', { class: 'btn primary', style: 'width:auto;padding:0 28px', onclick: () => startScan() }, icon('scan'), 'Scan Document'));
-    else e.append(el('h3', { textContent: 'No Documents Yet' }), el('p', { textContent: 'Scan receipts, notes, IDs and more. They stay private on this device.' }), el('button', { class: 'btn primary', style: 'width:auto;padding:0 28px', onclick: () => startScan() }, icon('scan'), 'Scan Document'));
-    list.replaceChildren(e); return;
+    list.replaceChildren(el('p', { class: 'empty-inline', textContent: activeFolder ? 'Nothing in this folder yet. Move documents here from their ••• menu.' : 'Your earlier scans will show up here.' }));
+    return;
   }
-  const meta = (d) => `${relDate(d.updated || d.created)} · ${plural(d.pages.length, 'page')}${d.folder && !activeFolder ? ' · ' + d.folder : ''}`;
-  const thumb = (d) => { const i = el('img', { alt: '', onload: function () { this.classList.add('ld'); } }); if (d.pages[0]) i.src = url(d.pages[0].img); return i; };
+  const meta = (d) => `${plural(d.pages.length, 'page')} · ${docSize(docBytes(d))} · ${relDate(d.updated || d.created)}`;
   if (settings.layout === 'grid') {
-    list.replaceChildren(el('div', { class: 'dgrid' }, docs.map((d) => el('div', { class: 'tile' + (homeSel.ids.has(d.id) ? ' sel' : ''), 'data-id': d.id },
-      el('button', { class: 'thumb', style: 'display:block;width:100%', onclick: () => openDoc(d.id), 'aria-label': d.name }, thumb(d), d.pages.length > 1 ? el('span', { class: 'count', textContent: d.pages.length }) : null, el('span', { class: 'selck' }, icon('check'))),
-      el('div', { class: 'tinfo' }, el('div', {}, el('div', { class: 'tname', textContent: d.name }), el('div', { class: 'tmeta', textContent: meta(d) }), snippets[d.id] ? el('div', { class: 'snip', textContent: snippets[d.id] }) : null),
-        el('button', { class: 'tmore', 'aria-label': 'More', onclick: () => docActions(d) }, icon('more')))))));
+    list.replaceChildren(el('div', { class: 'dgrid' }, docs.map((d) => el('div', { class: 'dc' + (homeSel.ids.has(d.id) ? ' sel' : ''), 'data-id': d.id },
+      el('button', { class: 'thumb', onclick: () => openDoc(d.id), 'aria-label': d.name }, paperStack(d, 70, 94), pcount(d.pages.length), el('span', { class: 'selck' }, icon('check'))),
+      el('div', { class: 'tinfo' }, el('div', { class: 'tname', textContent: d.name }), el('div', { class: 'tmeta', textContent: `${relDate(d.updated || d.created)}${d.folder && !activeFolder ? ' · ' + d.folder : ''}` }))))));
   } else {
-    list.replaceChildren(el('div', { class: 'dlist' }, docs.map((d) => swipeRow(d, thumb(d), meta(d), snippets[d.id]))));
+    list.replaceChildren(el('div', { class: 'dlist' }, docs.map((d) => swipeRow(d, paperStack(d, 56, 76), meta(d)))));
   }
+}
+/** Act on a share-sheet choice (pdf | small | jpg). */
+async function shareChoice(d, w) {
+  if (w === 'jpg') { const dd = await ensureFinal(d); busy(); return deliver(dd.pages.map((p, i) => new File([p.img], `${safeName(dd.name)}${dd.pages.length > 1 ? ' - ' + (i + 1) : ''}.jpg`, { type: 'image/jpeg' }))); }
+  return exportPdf(d, null, w === 'small');
+}
+/** Empty state "Import from Photos": straight into the batch grid, every photo auto-cropped. */
+async function importPhotos() {
+  const files = await pickFiles('image/*', true); if (!files.length) return;
+  scan.pages = []; scan.i = 0; scan.returnTo = null; scan.src = 'lib'; openBatch(); batchAdd(files);
 }
 function swipeRow(d, img, meta, snip) {
   const content = el('div', { class: 'rowc' }, el('span', { class: 'selck' }, icon('check')), img, el('div', { class: 'rt' }, el('div', { class: 'tname', textContent: d.name }), el('div', { class: 'tmeta', textContent: meta }), snip ? el('div', { class: 'snip', textContent: snip }) : null), icon('chev', 'chev'));
-  content.querySelector('.chev').style.cssText = 'width:16px;height:16px;color:var(--label3);stroke-width:2.4';
   const row = el('div', { class: 'swipe' + (homeSel.ids.has(d.id) ? ' sel' : ''), 'data-id': d.id }, el('div', { class: 'sacts' },
     el('button', { class: 'mv', onclick: () => moveDoc(d) }, icon('folder'), 'Move'),
     el('button', { class: 'del', onclick: () => deleteDoc(d) }, icon('trash'), 'Delete')), content);
@@ -421,7 +506,7 @@ function swipeRow(d, img, meta, snip) {
   });
   const end = () => {
     if (x0 == null) return; x0 = null; content.classList.remove('drag'); row.classList.remove('swiping');
-    if (horiz) { setOpen(dx < -ACT_W / 2); if (row._open) haptic(); }
+    if (horiz) { if (dx < -ACT_W - 30) { haptic('delete'); setOpen(false); return deleteDoc(d); } setOpen(dx < -ACT_W / 2); }
   };
   content.addEventListener('pointerup', end); content.addEventListener('pointercancel', end);
   content.addEventListener('click', (e) => {
@@ -432,7 +517,37 @@ function swipeRow(d, img, meta, snip) {
   });
   return row;
 }
-let searchT; $('search').addEventListener('input', () => { clearTimeout(searchT); searchT = setTimeout(() => renderHome('none'), 180); });
+let searchT; $('search').addEventListener('input', () => { clearTimeout(searchT); searchT = setTimeout(renderSearch, 180); });
+// ---------- Search tab (3.4) ----------
+let searchFolder = '';
+function markText(text, q) {
+  const f = document.createDocumentFragment(); if (!q) { f.append(text); return f; }
+  const lo = text.toLowerCase(); let i = 0, k;
+  while ((k = lo.indexOf(q, i)) >= 0) { f.append(text.slice(i, k), el('mark', { textContent: text.slice(k, k + q.length) })); i = k + q.length; }
+  f.append(text.slice(i)); return f;
+}
+async function renderSearch() {
+  const raw = $('search').value.trim(), q = raw.toLowerCase();
+  const all = (await DB.all()).sort((a, b) => (b.updated || b.created) - (a.updated || a.created));
+  const folders = await allFolders(all), body = $('searchBody');
+  if (searchFolder && !folders.includes(searchFolder)) searchFolder = '';
+  const chips = el('div', { class: 'chips', role: 'group', 'aria-label': 'Folders' },
+    [['', 'All'], ...folders.map((f) => [f, f])].map(([v, l]) => el('button', { class: 'chip' + (searchFolder === v ? ' on' : ''), 'aria-pressed': String(searchFolder === v), onclick: () => { searchFolder = v; renderSearch(); } }, v ? icon(folderLook(v)[0]) : null, l)));
+  let docs = all.filter((d) => !searchFolder || d.folder === searchFolder); const snip = {};
+  if (q) docs = docs.filter((d) => {
+    if (d.name.toLowerCase().includes(q) || (d.folder || '').toLowerCase().includes(q)) return true;
+    for (const p of d.pages) { const t = p.text || '', i = t.toLowerCase().indexOf(q); if (i >= 0) { snip[d.id] = '…' + t.slice(Math.max(0, i - 24), i + q.length + 40).replace(/\s+/g, ' ') + '…'; return true; } }
+    return false;
+  });
+  const row = (d) => el('button', { class: 'srow', onclick: () => openDoc(d.id) }, paperStack(d, 40, 54),
+    el('span', { class: 'rt' }, el('b', {}, markText(d.name, q)), el('small', { class: 'tnum', textContent: `${plural(d.pages.length, 'page')} · ${relDate(d.updated || d.created)}${d.folder ? ' · ' + d.folder : ''}` }),
+      snip[d.id] ? el('span', { class: 'snip' }, markText(snip[d.id], q)) : null));
+  revokeUrls();
+  if (!all.length) { body.replaceChildren(el('div', { class: 'empty', html: SEARCH_ILL }, el('h3', { textContent: 'Nothing to search yet' }), el('p', { textContent: 'Scanned documents and the text inside them show up here.' }))); return; }
+  if (q && !docs.length) { body.replaceChildren(chips, el('div', { class: 'empty', html: SEARCH_ILL }, el('h3', { textContent: 'No Results' }), el('p', { textContent: `Nothing matches “${raw}”. Text inside pages is searchable after you use Text on a document.` }))); return; }
+  body.replaceChildren(chips, el('div', { class: 'sh', style: 'margin-top:8px' }, el('h2', { textContent: q ? plural(docs.length, 'Result') : 'Recent' })),
+    el('div', { class: 'card', style: 'padding:4px 16px' }, (q ? docs : docs.slice(0, 8)).map(row)));
+}
 async function folderActions(all) {
   const v = await menu(activeFolder, [{ label: 'Rename Folder', value: 'ren', icon: 'pencil' }, { label: 'Delete Folder', value: 'del', icon: 'trash', danger: true }]);
   if (v === 'ren') {
@@ -470,7 +585,7 @@ async function docActions(d) {
     { label: 'Share PDF', value: 'share', icon: 'share' }, { label: 'Rename', value: 'rename', icon: 'pencil' },
     { label: 'Move to Folder', value: 'move', icon: 'folder' }, { label: 'Delete', value: 'delete', icon: 'trash', danger: true }],
   `${plural(d.pages.length, 'page')} · ${relDate(d.updated || d.created)}`);
-  if (v === 'share') { const w = await shareMenu(d); if (w === 'jpg') { const dd = await ensureFinal(d); busy(); return deliver(dd.pages.map((p, i) => new File([p.img], `${safeName(dd.name)}${dd.pages.length > 1 ? ' - ' + (i + 1) : ''}.jpg`, { type: 'image/jpeg' }))); } return w && exportPdf(d, null, w === 'small'); }
+  if (v === 'share') { const w = await shareMenu(d); return w && shareChoice(d, w); }
   if (v === 'rename') { if (await renameDoc(d)) curView === 'doc' ? openDoc(d.id, 'none') : renderHome('none'); }
   if (v === 'move') { await moveDoc(d); if (curView === 'doc') openDoc(d.id, 'none'); }
   if (v === 'delete') return deleteDoc(d);
@@ -485,20 +600,30 @@ async function openDoc(id, mode = 'push') {
   $('docTitle').textContent = current.name;
   $('doc').querySelector('.nav-t').textContent = current.name;
   const bytes = current.pages.reduce((a, p) => a + (p.img ? p.img.size : 0), 0);
-  $('docMeta').replaceChildren(el('span', {}, icon('folder'), current.folder || 'No folder'), el('span', {}, icon('docs'), plural(current.pages.length, 'page')), el('span', {}, icon('storage'), docSize(bytes)), el('span', { textContent: relDate(current.updated || current.created) }));
+  // 3.4: one quiet line — 3 pages · 1.2 MB · Today, 9:41 · Bills
+  $('docMeta').replaceChildren(...[plural(current.pages.length, 'page'), docSize(bytes), relDate(current.updated || current.created), current.folder].filter(Boolean).map((x) => el('span', { textContent: x })));
   $('docSearchBar').hidden = true; $('docSearchHint').hidden = true; $('docSearch').value = '';
   const wrap = $('pages'); wrap.replaceChildren();
   current.pages.forEach((p, i) => {
-    const tile = el('div', { class: 'pg' + (docSel.ids.has(i) ? ' sel' : '') }, el('div', { class: 'thumb' }, el('img', { src: url(p.img), alt: `Page ${i + 1}`, draggable: false }), el('span', { class: 'selck' }, icon('check'))), el('span', { class: 'num', textContent: i + 1 }));
+    const img = el('img', { src: url(p.img), alt: `Page ${i + 1}`, draggable: false, onload: function () { fitPage(this); } });
+    const tile = el('div', { class: 'pg' + (docSel.ids.has(i) ? ' sel' : '') }, el('div', { class: 'thumb' }, el('span', { class: 'paper' }, img, el('span', { class: 'num tnum', textContent: i + 1 })), el('span', { class: 'selck' }, icon('check'))));
     tile.dataset.i = i; wrap.append(tile);
   });
-  $('doc').querySelector('.tip').hidden = current.pages.length < 2;
+  $('doc').querySelector('.tip').hidden = current.pages.length < 2 || localStorage.getItem('tipReorder') === '1';
   // 'none' = refresh in place without animation; if the document screen isn't showing yet, show it (3.3.1 fix: callers
   // that open a document with 'none' from another screen used to stay where they were)
   if (mode !== 'none') show('doc', curView === 'home' || curView === 'tool' ? 'push' : 'pop');
   else if (curView !== 'doc') show('doc', 'none');
   docSelChrome();
 }
+/** Page thumbnails are paper cut to the page's own shape, contained in the A4 cell (never cropped). */
+function fitPage(img) {
+  const box = img.closest('.thumb'), pp = img.parentElement; if (!box || !img.naturalWidth) return;
+  const W = box.clientWidth, H = box.clientHeight, r = img.naturalWidth / img.naturalHeight;
+  let w = W, h = W / r; if (h > H) { h = H; w = H * r; }
+  pp.style.width = `${Math.round(w)}px`; pp.style.height = `${Math.round(h)}px`; img.style.cssText = 'width:100%;height:100%';
+}
+$('doc').querySelector('.tipx').onclick = () => { localStorage.setItem('tipReorder', '1'); $('doc').querySelector('.tip').hidden = true; };
 $('docTitle').onclick = async () => { if (await renameDoc(current)) openDoc(current.id, 'none'); };
 (() => {
   const wrap = $('pages'); let st = null;
@@ -506,7 +631,7 @@ $('docTitle').onclick = async () => { if (await renameDoc(current)) openDoc(curr
   wrap.addEventListener('pointerdown', (e) => {
     const t = e.target.closest('.pg'); if (!t) return;
     st = { t, x: e.clientX, y: e.clientY, drag: false, moved: false, id: e.pointerId };
-    st.timer = setTimeout(() => { if (!st || st.moved || docSel.on) return; st.drag = true; haptic(); t.classList.add('lift'); wrap.setPointerCapture(st.id); }, 320);
+    st.timer = setTimeout(() => { if (!st || st.moved || docSel.on) return; st.drag = true; haptic('lift'); t.classList.add('lift'); wrap.setPointerCapture(st.id); }, 320);
   });
   wrap.addEventListener('pointermove', (e) => {
     if (!st) return;
@@ -643,7 +768,7 @@ async function openPage(i, mode) {
   $('pageView').addEventListener('pointerdown', (e) => { if ($('adjust').hidden) { x0 = e.clientX; y0 = e.clientY; } });
   $('pageView').addEventListener('pointerup', (e) => {
     if (x0 == null) return; const dx = e.clientX - x0, dy = e.clientY - y0; x0 = null;
-    if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) { const n = pageIdx + (dx < 0 ? 1 : -1); if (n >= 0 && n < current.pages.length) { haptic(); openPage(n); } }
+    if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) { const n = pageIdx + (dx < 0 ? 1 : -1); if (n >= 0 && n < current.pages.length) { openPage(n); } }
   });
 })();
 async function setPageFilter(f, all) {
@@ -1092,15 +1217,24 @@ function batchAdd(files) {
   }
   renderBatch(had > 0);
 }
+/** 3.4 continuous capture: the vision worker runs one job at a time, so a full-res detect / refine / warp started right
+ *  after a shot would hold back the live outline for 1–2 s. While the user is actively shooting (a shot in the last
+ *  1.2 s, or a page locking for auto-capture) background page work waits between worker calls. Leaving the camera
+ *  releases it at once. */
+async function camYield() {
+  if (typeof CAM === 'undefined') return;
+  for (let i = 0; i < 300 && curView === 'cam' && CAM.stream && (performance.now() - (CAM.t0Shot || -1e9) < 1200 || CAM.armQ); i++) await sleep(100);
+}
 async function processBatchPage(pg) {
   if (!scan.pages.includes(pg)) return;
   const t0 = performance.now();
   let raw = null;
   try {
-    if (!pg.file && pg.fileP) { pg.file = await pg.fileP; pg.fileP = null; }
+    if (!pg.file && pg.fileP) { pg.file = await pg.fileP; pg.fileP = null; } // JPEG encode is off the worker: never deferred
+    await camYield();
     raw = await Vision.decode(pg.file); const t1 = performance.now(); // full resolution (≤4096 / 16 MP)
-    let det = null; try { det = await vDetect(raw); } catch {}
-    if (det) { pg.v1q = Vision.order(det.q).map((t) => ({ x: t.x / raw.width, y: t.y / raw.height })); pg.refT0 = performance.now(); pg.stage = 'refine'; updateBatchTile(pg); det = await vRefine(raw, det); pg.v = det.v; pg.low = !!det.low; pg.conf = det.conf; }
+    await camYield(); let det = null; try { det = await vDetect(raw); } catch {}
+    if (det) { pg.v1q = Vision.order(det.q).map((t) => ({ x: t.x / raw.width, y: t.y / raw.height })); pg.refT0 = performance.now(); pg.stage = 'refine'; updateBatchTile(pg); await camYield(); det = await vRefine(raw, det); pg.v = det.v; pg.low = !!det.low; pg.conf = det.conf; }
     const t2 = performance.now(), q = Vision.order(det ? det.q : fullCorners(raw));
     const rel = (qq) => qq.map((t) => ({ x: t.x / raw.width, y: t.y / raw.height }));
     if (pg.book && det && scan.pages.includes(pg)) {
@@ -1117,7 +1251,7 @@ async function processBatchPage(pg) {
       if (curView === 'batch') renderBatch(); else updateBatchTile(pg);
       return;
     }
-    const w = await vWarp(raw, q, 0.88);
+    await camYield(); const w = await vWarp(raw, q, 0.88);
     pg.t = { decode: Math.round(t1 - t0), detect: Math.round(t2 - t1), warp: Math.round(performance.now() - t2) };
     Object.assign(pg, { raw: w.raw, quad: rel(q), orig: w.orig, found: !!det, status: 'ok', _thumb: burl(w.orig) });
     freeBatchUrls();
@@ -1171,7 +1305,6 @@ function updateBatchChrome() {
 }
 async function batchDelete(pg) {
   const t = $('batGrid').querySelector(`[data-id="${pg.id}"]`);
-  haptic();
   scan.pages = scan.pages.filter((p) => p !== pg); if (pg.spread) scan.pages.forEach((p) => { if (p.spread === pg.spread) p.spread = null; });
   if (t) { t.style.transition = 'transform .22s ease, opacity .22s'; t.style.transform = 'scale(.6)'; t.style.opacity = 0; await new Promise((r) => setTimeout(r, 200)); }
   freeBatchUrls(); renderBatch();
@@ -1182,7 +1315,7 @@ function wireTile(t, pg) {
   t.addEventListener('pointerdown', (e) => {
     if (e.target.closest('.del')) return;
     sx = e.clientX; sy = e.clientY; moved = false; lifted = false; pid = e.pointerId;
-    timer = setTimeout(() => { if (scan.pages.length < 2) return; lifted = true; haptic(); t.classList.add('lift'); try { t.setPointerCapture(pid); } catch {} }, 280);
+    timer = setTimeout(() => { if (scan.pages.length < 2) return; lifted = true; haptic('lift'); t.classList.add('lift'); try { t.setPointerCapture(pid); } catch {} }, 280);
   });
   t.addEventListener('pointermove', (e) => {
     const dx = e.clientX - sx, dy = e.clientY - sy;
@@ -1192,7 +1325,7 @@ function wireTile(t, pg) {
     const over = tiles.find((o) => { if (o === t) return false; const r = o.getBoundingClientRect(); return e.clientX > r.left && e.clientX < r.right && e.clientY > r.top && e.clientY < r.bottom; });
     if (over) {
       const from = scan.pages.indexOf(pg), to = scan.pages.findIndex((p) => String(p.id) === over.dataset.id);
-      scan.pages.splice(from, 1); scan.pages.splice(to, 0, pg); haptic();
+      scan.pages.splice(from, 1); scan.pages.splice(to, 0, pg);
       const r0 = t.getBoundingClientRect();
       if (to > from) over.after(t); else over.before(t);
       const r1 = t.getBoundingClientRect(); sx += r1.left - r0.left; sy += r1.top - r0.top;
@@ -1338,7 +1471,7 @@ function renderCropStrip() {
   const tiles = scan.pages.map((p, i) => {
     const on = p === st.cur || !!(st.pair && st.pair.includes(p));
     const b = el('button', { class: on ? 'on' : '', role: 'tab', 'aria-selected': String(on), 'aria-label': `Page ${i + 1}${p.low ? ', check corners' : ''}`,
-      onclick: () => { if (on || !crop.opts) return; haptic(); crop.opts.jump = i; $('cropDone').onclick(); } },
+      onclick: () => { if (on || !crop.opts) return; crop.opts.jump = i; $('cropDone').onclick(); } },
       el('img', { alt: '', src: p._thumb || '', draggable: 'false' }), el('span', { class: 'n' }, String(i + 1)));
     if (p.status === 'ok' && (p.low || !p.found)) b.append(el('i', { class: 'dot' }));
     return b;
@@ -1430,10 +1563,11 @@ function drawCrop() {
   }
   q.forEach((p, i) => {
     const bz = crop.bounce && crop.bounce.i === i ? (() => { const u = Math.min(1, (performance.now() - crop.bounce.t0) / 300); return 1 + 0.3 * (1 - u) * (1 - u); })() : 1; // snap bounce 1.3× → 1×
-    ctx.beginPath(); ctx.arc(p.x, p.y, (crop.drag === i ? 13 : 10) * d * bz, 0, 7);
-    ctx.fillStyle = '#fff'; ctx.shadowColor = 'rgba(0,0,0,.4)'; ctx.shadowBlur = 8 * d; ctx.fill(); ctx.shadowBlur = 0;
+    // 3.4: 24pt corner handle (44pt hit area unchanged): white disc, 2.5pt teal ring, teal centre; grows to 30pt while held
+    ctx.beginPath(); ctx.arc(p.x, p.y, (crop.drag === i ? 15 : 12) * d * bz, 0, 7);
+    ctx.fillStyle = '#fff'; ctx.shadowColor = 'rgba(0,0,0,.35)'; ctx.shadowBlur = 8 * d; ctx.shadowOffsetY = 2 * d; ctx.fill(); ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
     ctx.lineWidth = 2.5 * d; ctx.strokeStyle = '#2dd4bf'; ctx.stroke();
-    ctx.beginPath(); ctx.arc(p.x, p.y, 3 * d, 0, 7); ctx.fillStyle = '#2dd4bf'; ctx.fill();
+    ctx.beginPath(); ctx.arc(p.x, p.y, (crop.drag === i ? 4 : 3.5) * d, 0, 7); ctx.fillStyle = '#0a9c8c'; ctx.fill();
   });
 }
 /** 3.3.3 loupe: a 100pt circle 120pt above the finger, 2× zoom on the point being dragged. */
@@ -1484,7 +1618,7 @@ async function snapCorner(i) {
   const nq = crop.corners.map((t, j) => (j === i ? clampPt(best, crop.canvas) : t)); if (!quadValid(nq)) return false;
   crop.corners = nq; crop.bounce = { i, t0: performance.now() }; crop.snaps = (crop.snaps || 0) + 1;
   const anim = () => { if (!crop.canvas || !crop.bounce) return; drawCrop(); if (performance.now() - crop.bounce.t0 < 320) requestAnimationFrame(anim); else { crop.bounce = null; drawCrop(); } };
-  requestAnimationFrame(anim); return true;
+  haptic('snap'); requestAnimationFrame(anim); return true;
 }
 function canvasPoint(e) { const cc = $('cropCanvas'), r = cc.getBoundingClientRect(); return { x: (e.clientX - r.left) * (cc.width / r.width), y: (e.clientY - r.top) * (cc.height / r.height) }; }
 // Hit targets: corners (index 0-3) and edge midpoints (4-7, edge k joins corner k and k+1). ≥44pt each.
@@ -1515,7 +1649,7 @@ $('cropCanvas').addEventListener('pointerdown', (e) => {
     if (d < dm && (best < 0 || best >= 4)) best = 8; else if (best < 0) { const [a, b] = spineLine(q, crop.spine), ex = b.x - a.x, ey = b.y - a.y, L2 = ex * ex + ey * ey || 1, u = Math.max(0, Math.min(1, ((p.x - a.x) * ex + (p.y - a.y) * ey) / L2)); if (Math.hypot(a.x + ex * u - p.x, a.y + ey * u - p.y) < 22 * crop.disp) best = 8; } }
   crop.drag = best; if (best < 0) return;
   crop.touched = true; crop.start = { p, q: q.map((t) => ({ ...t })), t: crop.spine }; crop.finger = { x: e.clientX, y: e.clientY };
-  e.target.setPointerCapture(e.pointerId); haptic(); drawCrop(); drawLoupe(dragPoint());
+  e.target.setPointerCapture(e.pointerId); drawCrop(); drawLoupe(dragPoint());
 });
 const dragPoint = () => (crop.drag === 8 ? spineMid(crop.corners, crop.spine) : crop.drag < 4 ? crop.corners[crop.drag] : edgeMid(crop.corners, crop.drag - 4));
 $('cropCanvas').addEventListener('pointermove', (e) => {
@@ -1544,7 +1678,7 @@ $('cropCanvas').addEventListener('pointermove', (e) => {
   crop.corners = nq; drawCrop(); drawLoupe(dragPoint());
 });
 ['pointerup', 'pointercancel'].forEach((t) => $('cropCanvas').addEventListener(t, (e) => { const was = crop.drag; crop.drag = -1; crop.finger = null; $('loupe').classList.remove('on'); if (!crop.canvas) return; drawCrop(); if (t === 'pointerup' && was >= 0 && was < 4) snapCorner(was); }));
-$('cropReset').onclick = () => { crop.corners = fullCorners(crop.canvas); crop.touched = true; drawCrop(); $('cropHint').textContent = 'No crop · the whole photo is used'; haptic(); };
+$('cropReset').onclick = () => { crop.corners = fullCorners(crop.canvas); crop.touched = true; drawCrop(); $('cropHint').textContent = 'No crop · the whole photo is used'; };
 $('cropAuto').onclick = async () => {
   $('crop').classList.add('finding'); $('cropHint').textContent = 'Finding edges…';
   try { const det = await vDetectBest(crop.canvas); $('crop').classList.remove('finding'); $('cropHint').textContent = 'Drag the corners or edges to fine-tune'; if (det) { $('cropAuto').classList.remove('hl'); crop.corners = det.q; drawCrop(); toast('Edges found'); } else toast('Page not found · drag the corners or edges', 'err'); }
@@ -1645,13 +1779,12 @@ async function precomputeNext() {
   if (miss) { try { const b = await vFilter(cur.orig, miss, null, 1200, 0.85, 1); cur._previews = cur._previews || {}; cur._previews[miss] = url(b); (cur._pblobs = cur._pblobs || {})[miss] = b; } catch {} schedulePrecompute(); }
 }
 function revScope(s) { scan.scope = s; $('revScope').querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.s === s)); }
-$('revScope').querySelectorAll('button').forEach((b) => (b.onclick = () => { revScope(b.dataset.s); haptic(); showReviewPage(); }));
+$('revScope').querySelectorAll('button').forEach((b) => (b.onclick = () => { revScope(b.dataset.s); showReviewPage(); }));
 async function setReviewFilter(f) {
   const cur = scan.pages[scan.i];
   if (scan.scope === 'one' && scan.pages.length > 1) { if (cur.filter === f) return; cur.filter = f; cur.override = true; }
   else { if (scan.filter === f && scan.pages.every((p) => p.filter === f)) return; scan.filter = f; scan.pages.forEach((p) => { p.filter = f; p.override = false; }); }
   [...$('revFilters').children].forEach((b, i) => b.classList.toggle('on', FILTERS[i][0] === f));
-  haptic();
   await showReviewPage();
 }
 $('revPrev').onclick = () => { if (scan.i > 0) { scan.i--; showReviewPage(); } };
@@ -1812,7 +1945,6 @@ async function exportPdf(doc, view, small) {
 
 // ---------- wiring ----------
 document.querySelectorAll('.tab').forEach((b) => (b.onclick = () => {
-  if (b.dataset.tab === 'search') { goTab('home'); setTimeout(() => $('search').focus(), 60); return; }
   goTab(b.dataset.tab);
 }));
 $('tabScan').onclick = () => startScan();
@@ -1843,6 +1975,13 @@ addEventListener('load', () => setTimeout(() => idle(async () => {
 })();
 
 // ---------- 3.3: Share sheet with size choice ----------
+/** Export sheet header: the pages fanned out as paper, name and size (v3 export sheet). */
+function exportHead(doc, n, bytes) {
+  // back-most sheet first in the DOM; page 1 sits on top
+  const pp = doc.pages.slice(0, 3).reverse().map((p, i, arr) => el('span', { class: 'paper' + (arr.length - 1 - i ? ' f' + (arr.length - 1 - i) : '') }, el('img', { src: url(p.img), alt: '' })));
+  return el('div', { class: 'xhead' }, el('div', { class: 'fan', 'aria-hidden': 'true' }, ...pp),
+    el('div', { class: 'xt' }, el('b', { textContent: doc.name }), el('small', { textContent: `${plural(n, 'page')} · ${docSize(bytes)}` })));
+}
 async function shareMenu(doc, n = doc.pages.length) {
   const bytes = doc.pages.reduce((a, p) => a + (p.img ? p.img.size : 0), 0);
   for (;;) {
@@ -1850,7 +1989,7 @@ async function shareMenu(doc, n = doc.pages.length) {
       { label: `PDF · Best quality (${docSize(bytes)})`, value: 'pdf', icon: 'pdf' },
       { label: 'PDF · Small file (for WhatsApp, email)', value: 'small', icon: 'compress' },
       { label: n > 1 ? 'Images (JPG)' : 'Image (JPG)', value: 'jpg', icon: 'photo' },
-      { label: `Page size · ${PAGE_SIZE_LABEL[settings.pageSize || 'original']}`, value: 'size', icon: 'docs' }]);
+      { label: `Page size · ${PAGE_SIZE_LABEL[settings.pageSize || 'original']}`, value: 'size', icon: 'docs' }], null, exportHead(doc, n, bytes));
     if (v !== 'size') return v;
     if (!await pickPageSize()) return null;
   }
@@ -1858,30 +1997,33 @@ async function shareMenu(doc, n = doc.pages.length) {
 
 // ---------- 3.3: Multi-select documents (home) ----------
 const homeSel = { on: false, ids: new Set(), all: [] };
+/** 3.4 chrome: large-title "Select" link starts selection; the nav bar shows Done (left) and All/None (right) while selecting. */
 function homeSelChrome() {
-  const n = homeSel.ids.size;
-  $('homeSel').textContent = homeSel.on ? 'Done' : 'Select';
-  $('homeNavT').textContent = homeSel.on ? (n ? `${n} Selected` : 'Select Items') : 'Documents';
-  $('home').classList.toggle('selecting', homeSel.on);
-  $('homeSelBar').hidden = !homeSel.on; $('tabbar').classList.toggle('hide', homeSel.on || curView !== 'home');
+  const n = homeSel.ids.size, on = homeSel.on;
+  $('homeSel').textContent = 'Select'; $('homeSel').hidden = on;
+  $('homeSelDone').hidden = !on; $('viewToggle').hidden = !on;
+  $('home').querySelector('.nav').classList.toggle('solid', on);
+  $('homeNavT').textContent = on ? (n ? `${n} Selected` : 'Select Items') : 'Documents';
+  $('home').classList.toggle('selecting', on);
+  $('homeSelBar').hidden = !on; $('tabbar').classList.toggle('hide', on || curView !== 'home');
   $('hsShare').disabled = !n; $('hsDelete').disabled = !n; $('hsMerge').disabled = n < 2;
-  $('viewToggle').textContent = ''; homeSel.on ? $('viewToggle').replaceChildren(document.createTextNode(n === homeSel.all.length && n ? 'None' : 'All')) : updateLayoutBtn();
-  $('viewToggle').classList.toggle('txt', homeSel.on);
+  $('viewToggle').textContent = n === homeSel.all.length && n ? 'None' : 'All';
 }
 function setHomeSel(on) { homeSel.on = on; homeSel.ids.clear(); renderHome('none').then(homeSelChrome); homeSelChrome(); }
 $('homeSel').onclick = () => setHomeSel(!homeSel.on);
-const vt0 = $('viewToggle').onclick;
-$('viewToggle').onclick = (e) => {
-  if (!homeSel.on) return vt0(e);
+$('homeSelDone').onclick = () => setHomeSel(false);
+$('viewToggle').onclick = () => {
+  if (!homeSel.on) return;
   if (homeSel.ids.size === homeSel.all.length) homeSel.ids.clear(); else homeSel.all.forEach((i) => homeSel.ids.add(i));
   $('docList').querySelectorAll('[data-id]').forEach((t) => t.classList.toggle('sel', homeSel.ids.has(t.dataset.id))); homeSelChrome();
 };
+homeSelChrome();
 $('docList').addEventListener('click', (e) => {
   if (!homeSel.on) return;
   const t = e.target.closest('[data-id]'); if (!t) return;
   e.preventDefault(); e.stopPropagation();
   const id = t.dataset.id; homeSel.ids.has(id) ? homeSel.ids.delete(id) : homeSel.ids.add(id);
-  t.classList.toggle('sel', homeSel.ids.has(id)); haptic(); homeSelChrome();
+  t.classList.toggle('sel', homeSel.ids.has(id)); homeSelChrome();
 }, true);
 $('docList').addEventListener('pointerdown', (e) => { if (homeSel.on && e.target.closest('.rowc')) e.stopPropagation(); }, true); // no swipe while selecting
 const selDocs = async () => (await DB.all()).filter((d) => homeSel.ids.has(d.id)).sort((a, b) => homeSel.all.indexOf(a.id) - homeSel.all.indexOf(b.id));
@@ -1930,7 +2072,7 @@ function docSelChrome() {
 function setDocSel(on) { docSel.on = on; docSel.ids.clear(); $('pages').querySelectorAll('.pg').forEach((t) => t.classList.remove('sel')); docSelChrome(); }
 function docSelToggle(i) {
   docSel.ids.has(i) ? docSel.ids.delete(i) : docSel.ids.add(i);
-  const t = $('pages').querySelector(`.pg[data-i="${i}"]`); if (t) t.classList.toggle('sel', docSel.ids.has(i)); haptic(); docSelChrome();
+  const t = $('pages').querySelector(`.pg[data-i="${i}"]`); if (t) t.classList.toggle('sel', docSel.ids.has(i)); docSelChrome();
 }
 $('docSel').onclick = () => setDocSel(!docSel.on);
 const selIdx = () => [...docSel.ids].sort((a, b) => a - b);

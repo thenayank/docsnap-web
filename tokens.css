@@ -1,0 +1,73 @@
+/* DocSnap 3.4 design tokens — "Paper & Ink, teal light" (Loki spec §1, values from Vision's final v3 mockups).
+   One source of truth: colours, materials, 4 radii, elevation, Dynamic Type scale, 4pt grid, springs.
+   Old 3.x names (--bg, --label2, --accent-soft…) are mapped at the bottom so nothing that still reads them breaks. */
+:root{
+  color-scheme:light dark;
+  /* ---- colour: light (warm paper canvas, Vision QC #faf8f3) ---- */
+  --canvas:#faf8f3; --surface-1:#ffffff; --surface-2:#f3f1ec; --surface-3:#ebe8e1; --well:#f1eee7;
+  --ink:#1b1f1e; --ink-2:#6c6c70; --ink-3:rgba(27,31,30,.28); --ink-3s:#a3a3a8;
+  --sep:rgba(27,31,30,.08); --sep-strong:rgba(27,31,30,.14);
+  --accent:#087f72; --accent-text:#087f72; --accent-strong:#087f72; --on-accent:#ffffff;
+  --accent-glow:rgba(8,127,114,.30); --accent-wash:rgba(8,127,114,.08);
+  --cam-teal:#2dd4bf; --cam-wash:rgba(45,212,191,.08);
+  --danger:#d70015; --warn:#b45309; --ok-switch:#34c759;
+  --c-scan:#087f72; --c-edit:#2563eb; --c-protect:#b45309; --c-convert:#7c3aed; --c-med:#c2410c; --c-slate:#5c6466;
+  --paper:#ffffff; --paper-b1:#ededea; --paper-b2:#e4e4e0;
+  --tint:10%;
+  /* materials */
+  --mat-bar:rgba(250,248,243,.86); --mat-thick:rgba(255,255,255,.86); --mat-camera:rgba(20,24,23,.55); --mat-hud:rgba(20,22,22,.88);
+  --blur-bar:saturate(160%) blur(24px); --blur-thick:saturate(180%) blur(40px);
+  /* radii: 4 values (+ paper 3px, pills 999) */
+  --r-xs:6px; --r-sm:10px; --r-md:16px; --r-lg:28px; --r-paper:3px; --r-pill:999px; --r-card:20px;
+  /* elevation */
+  --e0:0 0 0 .5px var(--sep);
+  --e1:0 0 0 .5px rgba(27,31,30,.04),0 1px 2px rgba(27,31,30,.05),0 6px 16px -4px rgba(27,31,30,.07),0 16px 32px -12px rgba(27,31,30,.06);
+  --e2:0 0 0 .5px rgba(0,0,0,.10),0 1px 2px rgba(0,0,0,.14),0 6px 14px -4px rgba(0,0,0,.22);
+  --e3:0 20px 44px -12px rgba(17,20,20,.30),0 4px 10px rgba(17,20,20,.10);
+  --e4:0 -8px 40px rgba(17,20,20,.14);
+  --glow:0 8px 24px -6px var(--accent-glow);
+  /* type (HIG Large, rem against 17px root — Dynamic Type via -apple-system-body) */
+  --font:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display","Helvetica Neue",system-ui,sans-serif;
+  --t-large:2rem; --t-title1:1.647rem; --t-title2:1.294rem; --t-title3:1.176rem; --t-headline:1rem; --t-body:1rem;
+  --t-callout:.941rem; --t-subhead:.882rem; --t-footnote:.765rem; --t-caption1:.706rem; --t-caption2:.647rem;
+  /* 4pt grid */
+  --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s5:20px; --s6:24px; --s8:32px; --s10:40px; --s12:48px;
+  --margin:20px;
+  /* motion: spring curves (spring-solver, mass 1) as linear(); cubic fallbacks below */
+  --sp-smooth:linear(0,.072,.225,.378,.516,.633,.726,.793,.849,.89,.921,.943,.959,.971,.98,.986,.99,.993,.995,.996,.998,.998,.999,.999,1);
+  --sp-snappy:linear(0,.076,.243,.414,.57,.699,.799,.872,.92,.956,.978,.992,.999,1.003,1.005,1.005,1.004,1.003,1.002,1.002,1.001,1.001,1,1,1);
+  --sp-bouncy:linear(0,.075,.245,.429,.601,.743,.846,.924,.975,1.006,1.021,1.026,1.025,1.022,1.017,1.012,1.008,1.005,1.003,1.001,1,1,.999,.999,1);
+  --ease-out:cubic-bezier(.32,.72,0,1); --ease-in:cubic-bezier(.4,0,1,1); --fly-y:cubic-bezier(.5,0,.75,0);
+  --d-smooth:560ms; --d-snappy:480ms; --d-bouncy:720ms; --d-fade:150ms;
+  /* safe areas */
+  --sat:env(safe-area-inset-top); --sab:env(safe-area-inset-bottom); --tabh:calc(84px + max(0px,var(--sab) - 34px));
+}
+@supports not (animation-timing-function:linear(0,1)){:root{
+  --sp-smooth:cubic-bezier(.25,.9,.3,1); --sp-snappy:cubic-bezier(.3,1.25,.5,1); --sp-bouncy:cubic-bezier(.34,1.4,.64,1);
+}}
+@media (prefers-color-scheme:dark){:root{
+  --canvas:#0b0f0e; --surface-1:#151a19; --surface-2:#1c2221; --surface-3:#242b2a; --well:#1c2221;
+  --ink:#f2f4f3; --ink-2:#8e8e93; --ink-3:rgba(242,244,243,.28); --ink-3s:#5f6466;
+  --sep:rgba(255,255,255,.07); --sep-strong:rgba(255,255,255,.12);
+  --accent:#2dd4bf; --accent-text:#2dd4bf; --accent-strong:#2dd4bf; --on-accent:#00201c;
+  --accent-glow:rgba(45,212,191,.40); --accent-wash:rgba(45,212,191,.12);
+  --danger:#ff6961; --warn:#ff9f0a;
+  --c-scan:#2dd4bf; --c-edit:#60a5fa; --c-protect:#f5b44a; --c-convert:#a78bfa; --c-med:#f87171; --c-slate:#9aa3a5;
+  --paper:#f7f7f5; --paper-b1:#ededea; --paper-b2:#e4e4e0;
+  --tint:16%;
+  --mat-bar:rgba(14,18,17,.82); --mat-thick:rgba(30,35,34,.86);
+  --e0:inset 0 0 0 .5px rgba(255,255,255,.06);
+  --e1:inset 0 0 0 .5px rgba(255,255,255,.04);
+  --e2:0 0 0 .5px rgba(0,0,0,.3),0 1px 2px rgba(0,0,0,.4),0 8px 16px rgba(0,0,0,.4);
+  --e3:0 24px 48px -12px rgba(0,0,0,.85);
+  --e4:0 -8px 40px rgba(0,0,0,.6);
+}}
+/* ---- 3.x names → tokens (kept so every older rule and inline style still resolves) ---- */
+:root{
+  --bg:var(--canvas); --bg2:var(--surface-1); --bg3:var(--surface-2);
+  --fill:var(--surface-3); --fill2:var(--surface-2);
+  --label:var(--ink); --label2:var(--ink-2); --label3:var(--ink-3);
+  --red:var(--danger); --bar:var(--mat-bar); --shadow:var(--e1);
+  --accent-press:var(--accent-strong); --accent-soft:var(--accent-wash);
+  --ease:var(--ease-out); --spring:var(--sp-snappy);
+}

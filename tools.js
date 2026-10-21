@@ -144,6 +144,7 @@ const TOOLS = {
       const bytes = await out.save();
       if (bytes.length >= f.size) { res.replaceChildren(icon('check'), el('span', { textContent: 'This PDF is already as small as it can be.' })); return; }
       res.replaceChildren(icon('check'), el('span', { textContent: `${fmtSize(f.size)} → ${fmtSize(bytes.length)} · ${Math.round(100 - bytes.length / f.size * 100)}% smaller` }));
+      localStorage.setItem('lastReduce', `${fmtSize(f.size).replace(/ (MB|KB)$/, (m) => (fmtSize(bytes.length).endsWith(m.trim()) ? '' : m))} → ${fmtSize(bytes.length)}`);
       busy(); await deliver([pdfFile(bytes, `${baseName(f)} (small).pdf`)]);
     }), true, true);
     const st = filePicker(body, { multiple: false, onChange: (f) => { go.disabled = !f.length; res.replaceChildren(); } });
@@ -232,26 +233,43 @@ const TOOLS = {
     }, back);
   },
 
-  idcard: () => {
+  /** Indian ID cards at true size (85.6 × 54 mm) on one A4 page. kind: aadhaar (front+back) · pan (front) · dl (front+back). */
+  idcard: (back, kind = 'aadhaar') => {
+    const K = { aadhaar: ['Aadhaar Card', 'Aadhaar', true], pan: ['PAN Card', 'PAN Card', false], dl: ['Driving Licence', 'Driving Licence', true] }[kind] || ['ID Card', 'ID Card', true];
+    const [title, docName, twoSided] = K;
     const st = { front: null, back: null };
+    const mm = (dpi) => dpi / 25.4;
+    /** Lay the card(s) out on A4; also used, tiny, for the live preview. */
+    const layout = (A4, m) => {
+      const ctx = A4.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, A4.width, A4.height);
+      const cw = 85.6 * m, ch = 54 * m, x = (A4.width - cw) / 2;
+      const draw = (c, y) => {
+        ctx.save(); ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x, y, cw, ch, 3.2 * m) : ctx.rect(x, y, cw, ch); ctx.clip();
+        if (c) ctx.drawImage(c, x, y, cw, ch); else { ctx.fillStyle = '#f1eee7'; ctx.fillRect(x, y, cw, ch); }
+        ctx.restore(); ctx.strokeStyle = '#d0d0d0'; ctx.lineWidth = Math.max(1, m / 4); ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x, y, cw, ch, 3.2 * m) : ctx.rect(x, y, cw, ch); ctx.stroke();
+      };
+      draw(st.front, 40 * m); if (twoSided && (st.back || !st.front)) draw(st.back, 40 * m + ch + 20 * m);
+    };
     const build = (body, cta) => {
-      body.append(lead('Scan both sides of the card. They’re placed at real size on one A4 page, ready to print.'));
-      const slot = (key, label) => el('button', { class: 'slot', onclick: () => openCamera({ single: (c) => { if (c) st[key] = c.width < c.height ? rotateCanvas(c) : c; openTool('ID Card', build); } }) },
+      body.append(lead(twoSided ? 'Scan both sides of the card. They’re placed at real size on one A4 page, ready to print.' : 'Scan the front of the card. It’s placed at real size on an A4 page, ready to print.'));
+      const slot = (key, label) => el('button', { class: 'slot', onclick: () => openCamera({ single: (c) => { if (c) st[key] = c.width < c.height ? rotateCanvas(c) : c; openTool(title, build); } }) },
         el('div', { class: 'ph' + (st[key] ? ' has' : ''), style: st[key] ? `background-image:url(${st[key].toDataURL('image/jpeg', 0.6)})` : '' }, st[key] ? null : icon('camera')),
         el('b', { textContent: label }), el('small', { textContent: st[key] ? 'Retake' : 'Tap to scan' }));
-      body.append(el('div', { class: 'slots' }, slot('front', 'Front'), slot('back', 'Back')));
-      cta.append(btn(st.back || !st.front ? 'Create Page' : 'Create Page (front only)', () => run('Creating…', async () => {
-        const dpi = 200, mm = dpi / 25.4, A4 = el('canvas', { width: Math.round(210 * mm), height: Math.round(297 * mm) });
-        const ctx = A4.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, A4.width, A4.height);
-        const cw = 85.6 * mm, ch = 54 * mm, x = (A4.width - cw) / 2;
-        const draw = (c, y) => { ctx.save(); ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x, y, cw, ch, 3.2 * mm) : ctx.rect(x, y, cw, ch); ctx.clip(); ctx.drawImage(c, x, y, cw, ch); ctx.restore(); ctx.strokeStyle = '#d0d0d0'; ctx.lineWidth = 2; ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x, y, cw, ch, 3.2 * mm) : ctx.rect(x, y, cw, ch); ctx.stroke(); };
-        draw(st.front, 40 * mm); if (st.back) draw(st.back, 40 * mm + ch + 20 * mm);
+      body.append(el('div', { class: 'slots' + (twoSided ? '' : ' one') }, slot('front', 'Front'), twoSided ? slot('back', 'Back') : null));
+      // live A4 preview, drawn small (paper look, true proportions)
+      const pv = el('canvas', { width: 300, height: Math.round(300 * 297 / 210), style: 'width:100%;height:100%;display:block' }); layout(pv, 300 / 210);
+      body.append(el('h2', { class: 'ghead', textContent: 'Print preview · A4' }), el('div', { class: 'paper idpreview' }, pv));
+      cta.append(btn(!twoSided || st.back || !st.front ? 'Create Page' : 'Create Page (front only)', () => run('Creating…', async () => {
+        const m = mm(200), A4 = el('canvas', { width: Math.round(210 * m), height: Math.round(297 * m) });
+        layout(A4, m);
         const b = await canvasToBlob(A4, 0.9);
-        const d = await newDoc(`ID Card ${stamp()}`, [mkPage(b)]); busy(); toast('ID card saved'); openDoc(d.id);
+        const d = await newDoc(`${docName} ${stamp()}`, [mkPage(b)]); busy(); toast(`${title} saved`); openDoc(d.id);
       }), true, !st.front));
     };
-    openTool('ID Card', build);
+    openTool(title, build);
   },
+  pan: (back) => TOOLS.idcard(back, 'pan'),
+  dl: (back) => TOOLS.idcard(back, 'dl'),
 
   passport: async () => {
     const v = await menu('Passport Photo', [{ label: 'Take Photo', value: 'cam', icon: 'camera' }, { label: 'Choose from Photos', value: 'lib', icon: 'photos' }], 'Use a well-lit photo, facing the camera.');
@@ -260,10 +278,31 @@ const TOOLS = {
     if (f.length) startPassport(f[0]);
   },
 };
+function toolUseMonth() { try { return JSON.parse(localStorage.getItem('toolUseMonth') || '{}'); } catch { return {}; } }
+function toolUse() { try { return JSON.parse(localStorage.getItem('toolUse') || '{}'); } catch { return {}; } }
 document.querySelectorAll('[data-tool]').forEach((b) => (b.onclick = () => {
   const t = b.dataset.tool; toolBack = b.closest('#settings') ? 'settings' : 'tools';
+  const u = toolUse(); u[t] = (u[t] || 0) + 1; localStorage.setItem('toolUse', JSON.stringify(u));
+  const ym = new Date().toISOString().slice(0, 7), mu = toolUseMonth(); if (mu.ym !== ym) { mu.ym = ym; mu.c = {}; } mu.c[t] = (mu.c[t] || 0) + 1; localStorage.setItem('toolUseMonth', JSON.stringify(mu));
   TOOLS[t](toolBack);
 }));
+/** Tools tab: hero eyebrow from real usage, last Reduce result, and the search filter. */
+function renderToolsHome() {
+  const mu = toolUseMonth(), n = mu.ym === new Date().toISOString().slice(0, 7) && mu.c ? mu.c.idcard || 0 : 0;
+  $('toolHeroEyebrow').textContent = n >= 2 ? `Used ${n} times this month` : 'Most used for Indian IDs';
+  const lr = localStorage.getItem('lastReduce'); $('toolLastReduce').textContent = lr ? `Last: ${lr}` : '';
+  filterTools();
+}
+function filterTools() {
+  const q = $('toolSearch').value.trim().toLowerCase(); let shown = 0;
+  $('tools').querySelectorAll('.scroll [data-tool]').forEach((b) => { const hit = !q || (b.dataset.k + ' ' + b.textContent).toLowerCase().includes(q); b.classList.toggle('tmatch-none', !hit); if (hit) shown++; });
+  $('toolsPdf').querySelectorAll('.cap').forEach((c) => { let s = c.nextElementSibling, any = false; while (s && !s.classList.contains('cap')) { if (!s.classList.contains('tmatch-none')) any = true; s = s.nextElementSibling; } c.hidden = !any; });
+  const pdfAny = [...$('toolsPdf').querySelectorAll('[data-tool]')].some((b) => !b.classList.contains('tmatch-none'));
+  $('toolsPdf').hidden = !pdfAny; $('toolsPdf').previousElementSibling.hidden = !pdfAny;
+  $('tools').querySelectorAll('.tstack,.tmix').forEach((g) => (g.hidden = ![...g.querySelectorAll('[data-tool]')].some((b) => !b.classList.contains('tmatch-none'))));
+  $('toolNone').hidden = shown > 0;
+}
+$('toolSearch').addEventListener('input', filterTools);
 
 // ---------- Passport photo (India: 35 × 45 mm) ----------
 const PP = { img: null, zoom: 1, cx: 0.5, cy: 0.45, drag: null, OUT_W: 413, OUT_H: 531, copies: 12 }; // 300 dpi
