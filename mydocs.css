@@ -312,3 +312,4 @@
 .ax .md :is(.m-amber .i,.m-fld .eye .i){width:max(22px,calc(1em * .8))!important;height:max(22px,calc(1em * .8))!important}
 .ax .md .m-nudge .ni .i{width:max(24px,calc(1em * .8))!important;height:max(24px,calc(1em * .8))!important}
 .ax .md .m-searchf .i{width:max(20px,calc(1em * .8))!important;height:max(20px,calc(1em * .8))!important}
+.ax .m-hd{padding-top:6px}
