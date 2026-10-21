@@ -590,6 +590,8 @@ mark{background:var(--accent-wash);color:inherit;border-radius:3px;padding:0 1px
 .camflash{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none}
 .camflash.go{animation:camflash 200ms var(--ease-out)}
 @keyframes camflash{0%{opacity:.5}100%{opacity:0}}
+/* 3.4: the feed runs full-bleed behind the top bar; a soft scrim keeps the glass controls legible on bright scenes */
+.cam::before{content:"";position:absolute;left:0;right:0;top:0;height:calc(var(--sat) + 120px);background:linear-gradient(180deg,rgba(0,0,0,.5),rgba(0,0,0,.22) 55%,transparent);pointer-events:none;z-index:1}
 .cam::after{content:"";position:absolute;left:0;right:0;bottom:0;height:calc(250px + var(--sab) - 34px);min-height:216px;background:linear-gradient(180deg,transparent,rgba(0,0,0,.55) 30%,rgba(0,0,0,.84) 60%);pointer-events:none;z-index:1}
 .glass{background:rgba(20,24,23,.55);-webkit-backdrop-filter:blur(16px);backdrop-filter:blur(16px);color:#f2f4f3}
 .round{width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;position:relative;transition:transform var(--d-snappy) var(--sp-snappy),background 200ms}
@@ -616,7 +618,7 @@ mark{background:var(--accent-wash);color:inherit;border-radius:3px;padding:0 1px
 .bookcap em{font-style:normal;color:rgba(242,244,243,.72);font-weight:500;font-size:13px}
 .bookcap.show{opacity:1}
 .bookcap.fade{opacity:0}
-.camhint{position:absolute;left:0;right:0;bottom:calc(228px + var(--sab) - 34px);margin:0;text-align:center;font-size:13px;font-weight:500;color:rgba(242,244,243,.78);z-index:3;pointer-events:none;transition:opacity 200ms}
+.camhint{position:absolute;left:50%;transform:translateX(-50%);bottom:calc(228px + var(--sab) - 34px);margin:0;height:28px;padding:0 12px;border-radius:14px;display:flex;align-items:center;white-space:nowrap;background:rgba(20,20,20,.72);-webkit-backdrop-filter:blur(20px) saturate(140%);backdrop-filter:blur(20px) saturate(140%);font-size:13px;font-weight:600;color:#f2f4f3;z-index:3;pointer-events:none;transition:opacity 200ms}
 .camhint:empty{opacity:0}
 .camperm{position:absolute;inset:0;z-index:4;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:var(--s3);padding:0 36px;text-align:center;background:#000}
 .camperm .permart{width:160px;height:140px;margin-bottom:var(--s2)}
