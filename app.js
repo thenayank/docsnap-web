@@ -46,6 +46,12 @@ const saveSettings = () => localStorage.setItem('settings', JSON.stringify(setti
 // 3.4: the paper grid is the new default; migrate once, then respect whatever the user picks
 if (!settings.v34) { settings.v34 = 1; settings.layout = 'grid'; saveSettings(); }
 
+// ---------- 3.5 Dynamic Type ----------
+// html{font:-apple-system-body} makes 1rem the iOS text size; at accessibility sizes (≥ 28pt body) .ax switches to wrapping layouts.
+function syncTextSize() { document.documentElement.classList.toggle('ax', parseFloat(getComputedStyle(document.documentElement).fontSize) >= 28); }
+syncTextSize(); addEventListener('resize', syncTextSize); document.addEventListener('visibilitychange', () => { if (!document.hidden) syncTextSize(); });
+addEventListener('load', syncTextSize);
+
 // ---------- navigation ----------
 const TABS = ['home', 'mydocs', 'tools', 'settings']; // 3.5: My Docs replaces the Search tab; Search is a field on Documents
 /** The tab a non-tab view belongs to (keeps the tab bar highlight right when it is shown). */
@@ -145,7 +151,11 @@ function toast(msg, kind = 'ok', opt = {}) {
 function placeToast() {
   const t = $('toast'), sh = $('sheet');
   if (sh.classList.contains('on')) t.style.bottom = `${sh.offsetHeight + 12}px`;
-  else t.style.bottom = TABS.includes(curView) ? '' : 'calc(var(--sab) + 92px)';
+  else {
+    // 3.5: on full-screen My Docs flows the toast sits 12pt above the bottom button stack, never over content or buttons
+    const bot = curView === 'mdflow' || curView === 'mdbpw' ? document.querySelector(`#${curView} .m-bot`) : null;
+    t.style.bottom = bot && bot.offsetHeight ? `${innerHeight - bot.getBoundingClientRect().top + 12}px` : TABS.includes(curView) ? '' : 'calc(var(--sab) + 92px)';
+  }
 }
 function busy(msg) {
   const b = $('busy');

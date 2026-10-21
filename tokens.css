@@ -28,8 +28,11 @@
   --glow:0 8px 24px -6px var(--accent-glow);
   /* type (HIG Large, rem against 17px root — Dynamic Type via -apple-system-body) */
   --font:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display","Helvetica Neue",system-ui,sans-serif;
-  --t-large:2rem; --t-title1:1.647rem; --t-title2:1.294rem; --t-title3:1.176rem; --t-headline:1rem; --t-body:1rem;
-  --t-callout:.941rem; --t-subhead:.882rem; --t-footnote:.765rem; --t-caption1:.706rem; --t-caption2:.647rem;
+  /* 3.5 Dynamic Type: html{font:-apple-system-body} makes 1rem the user's iOS body size (17px default, 53px at AX5).
+     Each style grows along Apple's curve (Large Title 34→60, Title1 28→58, Body 17→53, Footnote 13→44, Caption2 11→40). */
+  --dt:calc(1rem - 17px);
+  --t-large:calc(34px + var(--dt) * .72); --t-title1:calc(28px + var(--dt) * .83); --t-title2:calc(22px + var(--dt) * .94); --t-title3:calc(20px + var(--dt) * .97); --t-headline:1rem; --t-body:1rem;
+  --t-callout:calc(16px + var(--dt) * .97); --t-subhead:calc(15px + var(--dt) * .94); --t-footnote:calc(13px + var(--dt) * .86); --t-caption1:calc(12px + var(--dt) * .86); --t-caption2:calc(11px + var(--dt) * .81);
   /* 4pt grid */
   --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s5:20px; --s6:24px; --s8:32px; --s10:40px; --s12:48px;
   --margin:20px;

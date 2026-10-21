@@ -206,9 +206,9 @@ const MD = (() => {
   const navHtml = (back, step) => `<div class="m-nav">${back ? `<button class="m-bk" id="mdBack">${ic('back')}${esc(back)}</button>` : '<span></span>'}<span class="m-step tnum">${esc(step || '')}</span></div>`;
   function pinStepHtml({ back, step, icon = 'key', title, sub, cap }) {
     return `${navHtml(back, step)}<div class="m-mk" style="margin-top:4px">${ic(icon)}</div>
-      <h1 class="m-h1">${esc(title)}</h1><div class="m-s" id="mdPinS" style="padding:0 12px;line-height:22px">${esc(sub)}</div>
+      <h1 class="m-h1">${esc(title)}</h1><div class="m-s" id="mdPinS" style="padding:0 12px;line-height:calc(22px + var(--dt) * 1.15)">${esc(sub)}</div>
       ${dotsHtml()}${keypad(false)}
-      <div class="m-cap" style="text-align:center;margin-top:22px;font-weight:400;font-size:15px">${esc(cap || '')}</div>`;
+      <div class="m-cap" style="text-align:center;margin-top:22px;font-weight:400;font-size:calc(15px + var(--dt) * 0.94)">${esc(cap || '')}</div>`;
   }
   /** Ask for a new 6-digit PIN twice. Resolves with the PIN. */
   function newPin({ back, step, title = '6-digit PIN banayein', sub, cap, forced, onBack }) {
@@ -237,7 +237,7 @@ const MD = (() => {
   function showCode(code, { title, sub, step, btn, back, onBack, forced, label = 'DEMO' }) {
     return new Promise((res) => {
       flow(`${navHtml(back, step)}<div class="m-display" style="margin-top:4px">${esc(title)}</div>
-        <div class="m-sub" style="margin-top:6px;font-size:17px;line-height:22px">${esc(sub)}</div>
+        <div class="m-sub" style="margin-top:6px;font-size:calc(17px + var(--dt) * 1);line-height:1.294">${esc(sub)}</div>
         ${codeCard(code, label)}
         <div class="m-amber" style="margin-top:16px">${ic('warn')}<span>PIN aur recovery code dono bhool gaye to documents wapas nahi aayenge.</span></div>
         <button class="m-cb" id="mdCb" role="checkbox" aria-checked="false"><span class="bx">${ic('check')}</span><span>Maine ye code kagaz par surakshit jagah likh liya hai</span></button>
@@ -252,13 +252,13 @@ const MD = (() => {
   function renderIntro() {
     flow(`${navHtml('', 'Step 1 of 5')}<div class="m-hero">${ic('mydocs')}</div>
       <div class="m-display" style="margin-top:20px">Aapke documents sirf is phone mein.</div>
-      <div style="margin-top:8px;font-size:20px;line-height:25px;font-weight:500;color:var(--m-ink2)">Koi server nahi, koi account nahi.</div>
+      <div style="margin-top:8px;font-size:calc(20px + var(--dt) * 0.97);line-height:1.25;font-weight:500;color:var(--m-ink2)">Koi server nahi, koi account nahi.</div>
       <div style="margin-top:12px">
         <div class="m-ft"><div class="m-tile" style="--c:var(--accent-text)">${ic('phone')}</div><div><b>On this phone</b><span>Documents encrypted hokar sirf is iPhone mein rehte hain.</span></div></div>
         <div class="m-ft"><div class="m-tile" style="--c:var(--accent-text)">${ic('faceid')}</div><div><b>Locked with Face ID</b><span>Face ID ya PIN se khulega. App band hote hi turant lock.</span></div></div>
         <div class="m-ft"><div class="m-tile" style="--c:var(--accent-text)">${ic('backup')}</div><div><b>You control backup</b><span>${DELETE_LINE}</span></div></div>
       </div>
-      <div class="m-cap" id="mdFinal" style="margin-top:20px;font-weight:400;font-size:13px;line-height:18px">${FINAL_LINE}</div>
+      <div class="m-cap" id="mdFinal" style="margin-top:20px;font-weight:400;font-size:calc(13px + var(--dt) * 0.86);line-height:1.385">${FINAL_LINE}</div>
       </div><div class="m-bot"><button class="m-btnp" id="mdSetup">Set up</button><button class="m-btnt" id="mdNotNow" style="margin-top:6px">Not now</button>`, { mode: 'up' });
     $('mdSetup').onclick = () => setupPin();
     $('mdNotNow').onclick = () => { closeFlow('home'); if (typeof renderHome === 'function') window.renderHome('none'); };
@@ -276,12 +276,16 @@ const MD = (() => {
     if (!Vault.prfSupported()) return setupCode();
     flow(`${navHtml('', 'Step 3 of 5')}<div class="m-hero">${ic('faceid')}</div>
       <div class="m-display" style="margin-top:20px">Face ID se kholein</div>
-      <div class="m-sub" style="margin-top:8px;font-size:17px;line-height:22px">Face ID sirf is phone ki chaabi kholta hai. Naye phone par Face ID ya PIN se My Docs nahi khulega.</div>
+      <div class="m-sub" style="margin-top:8px;font-size:calc(17px + var(--dt) * 1);line-height:1.294">Face ID sirf is phone ki chaabi kholta hai. Naye phone par Face ID ya PIN se My Docs nahi khulega.</div>
       </div><div class="m-bot"><button class="m-btnp" id="mdFaceOn">${ic('faceid')}Use Face ID</button><button class="m-btnt" id="mdFaceNo" style="margin-top:6px">Not now</button>`, { forced: true });
     $('mdFaceOn').onclick = async () => {
-      try { await Vault.enablePrf(); await refreshCache(); toast('Face ID on'); }
-      catch (e) { toast(e.code === 'PRF_UNSUPPORTED' ? 'Is phone par Face ID se key protect nahi ho sakti. PIN use hoga.' : 'Face ID on nahi hua. Settings se baad mein on kar sakte hain.', 'err'); }
-      setupCode();
+      // QC 1: confirm on the Face ID step itself for 1.5 s, then move on (never over the recovery-code screen)
+      const btn = $('mdFaceOn'); btn.disabled = true;
+      let ok = false;
+      try { await Vault.enablePrf(); await refreshCache(); ok = true; }
+      catch (e) { toast(e.code === 'PRF_UNSUPPORTED' ? 'Is phone par Face ID se key protect nahi ho sakti. PIN use hoga.' : 'Face ID on nahi hua. Settings se baad mein on kar sakte hain.', 'err', { ms: 1500 }); }
+      if (ok) toast('Face ID on', 'ok', { ms: 1500 });
+      await wait(1500); clearTimeout(toast._t); $('toast').classList.remove('show'); setupCode();
     };
     $('mdFaceNo').onclick = setupCode;
   }
@@ -296,7 +300,7 @@ const MD = (() => {
     const list = () => I().members.map((m, i) => `<div class="m-row"><span class="m-av" style="--c:${COLORS[m.color % COLORS.length]}">${esc(m.name[0])}</span><span class="t">${esc(m.name)}<small>${esc(m.rel)}</small></span></div>`).join('');
     const draw = () => {
       flow(`${navHtml('', 'Step 5 of 5')}<div class="m-display" style="margin-top:4px">Family</div>
-        <div class="m-sub" style="margin-top:6px;font-size:17px;line-height:22px">Kiske documents rakhne hain? Baad mein bhi add kar sakte hain.</div>
+        <div class="m-sub" style="margin-top:6px;font-size:calc(17px + var(--dt) * 1);line-height:1.294">Kiske documents rakhne hain? Baad mein bhi add kar sakte hain.</div>
         <div class="m-card m-memlist">${list()}<button class="m-row" id="mdAddMem"><span class="ic" style="color:var(--accent-text);display:flex">${ic('plus')}</span><span class="t" style="color:var(--accent-text);font-weight:600">Add family member</span></button></div>
         </div><div class="m-bot"><button class="m-btnp" id="mdFirst">Add first document</button>`, { forced: true });
       $('mdAddMem').onclick = async () => { if (await addMember()) draw(); };
@@ -307,7 +311,7 @@ const MD = (() => {
   // ---- recovery: Forgot PIN / new phone ----
   function recoveryEntry(from) {
     flow(`${navHtml('Back', '')}<div class="m-display" style="margin-top:4px">Recovery code</div>
-      <div class="m-sub" style="margin-top:6px;font-size:17px;line-height:22px">Kagaz par likha 28-character code daalein. Dash, space ya chhote-bade akshar se fark nahi padta.</div>
+      <div class="m-sub" style="margin-top:6px;font-size:calc(17px + var(--dt) * 1);line-height:1.294">Kagaz par likha 28-character code daalein. Dash, space ya chhote-bade akshar se fark nahi padta.</div>
       <div class="m-fl"><div class="lab">Recovery code</div><label class="m-fld"><input id="mdRc" class="code" autocomplete="off" autocapitalize="characters" spellcheck="false" inputmode="text" placeholder="XXXX-XXXX-XXXX-…" aria-label="Recovery code"></label>
       <div class="m-inl" id="mdRcErr" role="alert"></div></div>
       </div><div class="m-bot"><button class="m-btnp" id="mdRcGo" disabled>Continue</button>`, { back: () => backFromRecovery(from) });
@@ -339,9 +343,9 @@ const MD = (() => {
     $('mdMain').innerHTML = `<div class="m-wrap">
       <div class="m-mk">${ic('phone')}</div>
       <h1 class="m-h1">Naya phone</h1>
-      <div class="m-s" style="padding:0 8px;line-height:22px">Is phone par My Docs PIN ya Face ID se nahi khulega. Recovery code daalein ya DocSnap backup file import karein.</div>
+      <div class="m-s" style="padding:0 8px;line-height:calc(22px + var(--dt) * 1.15)">Is phone par My Docs PIN ya Face ID se nahi khulega. Recovery code daalein ya DocSnap backup file import karein.</div>
       <div style="margin-top:28px;display:flex;flex-direction:column;gap:12px"><button class="m-btnp" id="mdNdCode">${ic('key')}Recovery code daalein</button><button class="m-btns" id="mdNdFile">${ic('importb')}Backup file import karein</button></div>
-      <div class="m-cap" style="margin-top:20px;font-weight:400;font-size:13px;line-height:18px;text-align:center">${FINAL_LINE}</div></div>`;
+      <div class="m-cap" style="margin-top:20px;font-weight:400;font-size:calc(13px + var(--dt) * 0.86);line-height:1.385;text-align:center">${FINAL_LINE}</div></div>`;
     $('mdNdCode').onclick = () => recoveryEntry('newdevice');
     $('mdNdFile').onclick = () => importFlow(true);
   }
@@ -603,7 +607,7 @@ const MD = (() => {
   function refInfo() {
     return openSheet((body, close) => {
       const w = document.createElement('div'); w.className = 'md';
-      w.innerHTML = `<h3>Reference copy</h3><p class="m-sub" style="font-size:17px;line-height:22px;margin:8px 0 16px">Ye aapki khud ki scan copy hai. Legally valid copy ke liye DigiLocker dekhein.</p>
+      w.innerHTML = `<h3>Reference copy</h3><p class="m-sub" style="font-size:calc(17px + var(--dt) * 1);line-height:1.294;margin:8px 0 16px">Ye aapki khud ki scan copy hai. Legally valid copy ke liye DigiLocker dekhein.</p>
         <a class="m-btnp" href="${DIGILOCKER}" target="_blank" rel="noopener noreferrer" style="text-decoration:none">DigiLocker kholein${ic('arrow')}</a><button class="m-btnt" style="margin:4px 0 8px">Done</button>`;
       w.querySelector('.m-btnt').onclick = () => close(null); body.append(w);
     });
@@ -685,7 +689,7 @@ const MD = (() => {
     sh.innerHTML = `<div class="m-grab"></div>
       <div class="m-hd"><button class="c" id="mdShX">Cancel</button><b>Share ${esc(t.short === 'document' ? 'document' : t.short)}</b><span class="r m-step tnum">Step 1 of 2</span></div>
       <div class="m-seg" role="radiogroup" aria-label="Format"><button class="${s.fmt === 'pdf' ? 'on' : ''}" data-f="pdf" role="radio" aria-checked="${s.fmt === 'pdf'}">PDF</button><button class="${s.fmt === 'img' ? 'on' : ''}" data-f="img" role="radio" aria-checked="${s.fmt === 'img'}">Image</button></div>
-      <div class="m-cap" style="margin-top:12px;font-weight:400;font-size:15px;line-height:20px">${t.mask ? 'Number aur QR ke upar box kheench kar chhupayein. Aadhaar par ye zaroori hai.' : 'Number chhupana ho to toggle on karein aur box kheenchein.'}</div>
+      <div class="m-cap" style="margin-top:12px;font-weight:400;font-size:calc(15px + var(--dt) * 0.94);line-height:1.333">${t.mask ? 'Number aur QR ke upar box kheench kar chhupayein. Aadhaar par ye zaroori hai.' : 'Number chhupana ho to toggle on karein aur box kheenchein.'}</div>
       <div class="m-well2 m-cards" style="margin-top:10px">${d.pages.map((_, i) => `<div class="m-slab"><b>${lbl(i)}</b>${sub(i)}</div><div class="m-mask" data-p="${i}" style="height:${Math.round(254 / s.asp[i])}px"><img src="${cur.urls[i]}" alt="${lbl(i)}"></div>`).join('')}</div>
       <div class="m-card" style="margin-top:12px">
         <div class="m-tr"><div class="t">Number chhupayein<small class="tnum">${t.mask ? `Aadhaar par zaroori · ${Math.min(boxCount(s), need)} of ${need} boxes lage` : s.mask ? `${boxCount(s)} box · image par kheench kar aur jodein` : 'Off'}</small></div><button class="m-toggle${s.mask ? ' on' : ''}" id="mdMaskT" role="switch" aria-checked="${s.mask}" aria-label="Number chhupayein"${t.mask ? ' aria-disabled="true"' : ''}></button></div>
@@ -802,7 +806,7 @@ const MD = (() => {
     if (s.wm) checks.push(`Watermark: ${esc(s.wmText.trim() || 'Only for KYC')}`);
     sh.innerHTML = `<div class="m-grab"></div>
       <div class="m-hd"><button class="c" id="mdShBack" style="margin-left:-8px">${ic('back', '', 'width:26px;height:26px;stroke-width:2.2')}Back</button><b>Preview</b><span class="r m-step tnum">Step 2 of 2</span></div>
-      <div style="font-size:15px;line-height:20px;color:var(--m-ink2)">Yahi file share hogi. Ek baar dhyan se dekh lein.</div>
+      <div style="font-size:calc(15px + var(--dt) * 0.94);line-height:1.333;color:var(--m-ink2)">Yahi file share hogi. Ek baar dhyan se dekh lein.</div>
       <div class="m-pgw" style="margin-top:10px"><div class="m-pgp"><img src="${s.out.prev}" alt="Preview of the file to share"></div>
         <div class="m-cap tnum" style="text-align:center;margin-top:10px">${s.fmt === 'pdf' ? 'PDF' : 'Image'} · ${s.out.pages} ${s.fmt === 'pdf' ? 'page' : 'photo'}${s.out.pages > 1 ? 's' : ''} · ${esc(f.length > 1 ? f.length + ' files' : f[0].name)}</div></div>
       <div style="margin-top:12px;display:flex;flex-direction:column;gap:2px">${checks.map((c) => `<div class="m-ck">${ic('check')}<span>${c}</span></div>`).join('')}</div>
@@ -835,13 +839,13 @@ const MD = (() => {
       <div class="m-nav"><button class="m-bk" id="mdBkBack">${ic('back')}${st.bkFrom === 'mydocs' ? 'My Docs' : 'Settings'}</button><span></span></div>
       <div class="m-display" style="margin-top:2px">Backup</div>
       <div class="m-sub" style="margin-top:2px">My Docs</div>
-      <div class="m-amber" style="margin-top:14px">${ic('warn')}<div><p>${DELETE_LINE}</p></div></div>
-      <div class="m-cap" id="mdFinal2" style="margin-top:8px;padding:0 4px;font-weight:400;font-size:13px;line-height:18px">${FINAL_LINE}</div>
+      <div class="m-amber" style="margin-top:14px">${ic('warn')}<span>${DELETE_LINE}</span></div>
+      <div class="m-cap" id="mdFinal2" style="margin-top:8px;padding:0 4px;font-weight:400;font-size:calc(13px + var(--dt) * 0.86);line-height:1.385">${FINAL_LINE}</div>
       <div class="m-card m-stc"><div class="m-tile" style="--c:var(--c-protect)">${ic('backup')}</div><div class="t">Last backup: ${bk.last ? ago(bk.last) : 'never'}<small class="tnum">${esc(mem)} · ${n} document${n === 1 ? '' : 's'}</small></div></div>
       <button class="m-btnp" id="mdExport" style="margin-top:14px">${ic('backup')}Export backup</button>
       <div class="m-card m-list" style="margin-top:16px">
-        <button class="m-row" id="mdImport"><span class="ic">${ic('importb')}</span><span class="t" style="color:var(--ink);font-size:17px">Import backup<small>File chunein, password daalein, merge ya replace</small></span>${ic('chev', 'ch')}</button>
-        <div class="m-row"><span class="ic">${ic('cal')}</span><span class="t" style="color:var(--ink);font-size:17px">Backup reminder<small>3 documents ke baad, phir har 30 din. Band nahi hota.</small></span><span class="v" style="color:var(--m-ink2);font-weight:400;font-size:17px">On</span></div>
+        <button class="m-row" id="mdImport"><span class="ic">${ic('importb')}</span><span class="t" style="color:var(--ink);font-size:calc(17px + var(--dt) * 1)">Import backup<small>File chunein, password daalein, merge ya replace</small></span>${ic('chev', 'ch')}</button>
+        <div class="m-row"><span class="ic">${ic('cal')}</span><span class="t" style="color:var(--ink);font-size:calc(17px + var(--dt) * 1)">Backup reminder<small>3 documents ke baad, phir har 30 din. Band nahi hota.</small></span><span class="v" style="color:var(--m-ink2);font-weight:400;font-size:calc(17px + var(--dt) * 1)">On</span></div>
       </div>
       <div class="m-cap" style="margin-top:10px;padding:0 4px;font-weight:400">Backup ek .docsnapvault file banti hai, jo alag backup password se encrypted hoti hai. Ise Files ya AirDrop se save karein.</div></div>`;
     $('mdBkBack').onclick = back;
@@ -857,7 +861,7 @@ const MD = (() => {
     w.innerHTML = `<div class="m-flow"><div class="m-wrap">
       <div class="m-nav"><button class="m-bk" id="mdPwX" style="margin-left:0">Cancel</button><span class="m-step tnum">Step 1 of 2</span></div>
       <div class="m-display" style="margin-top:2px">Backup password</div>
-      <div class="m-sub" style="margin-top:6px;font-size:17px;line-height:22px">Ye password aapke PIN se alag hai. Backup file kholne ke liye isi ki zaroorat hogi.</div>
+      <div class="m-sub" style="margin-top:6px;font-size:calc(17px + var(--dt) * 1);line-height:1.294">Ye password aapke PIN se alag hai. Backup file kholne ke liye isi ki zaroorat hogi.</div>
       ${pwField('mdPw1', 'Password')}
         <div class="m-meter"><div class="b" id="mdMeter"><i></i><i></i><i></i><i></i></div><span id="mdMeterL"></span></div>
         <div class="m-ck no tnum" id="mdLen">${ic('check')}<span>Kam se kam 12 characters (0)</span></div></div>
@@ -902,7 +906,7 @@ const MD = (() => {
     w.innerHTML = `<div class="m-flow"><div class="m-wrap">
       <div class="m-nav"><button class="m-bk" id="mdPwX" style="margin-left:0">Cancel</button><span class="m-step tnum"></span></div>
       <div class="m-display" style="margin-top:2px">Backup kholein</div>
-      <div class="m-sub" style="margin-top:6px;font-size:17px;line-height:22px">${esc(file.name)} · backup password daalein. Ye password PIN se alag hai.</div>
+      <div class="m-sub" style="margin-top:6px;font-size:calc(17px + var(--dt) * 1);line-height:1.294">${esc(file.name)} · backup password daalein. Ye password PIN se alag hai.</div>
       ${pwField('mdPwI', 'Backup password')}<div class="m-inl" id="mdPwErr" role="alert"></div></div>
       </div><div class="m-bot"><button class="m-btnp" id="mdPwGo">Import</button><div class="m-cap" style="text-align:center;margin-top:12px;font-weight:400">Galat password par kuch nahi badalta.</div></div></div>`;
     show('mdbpw', 'up'); wireEyes(w);
