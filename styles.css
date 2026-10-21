@@ -39,10 +39,21 @@ button{font:inherit;letter-spacing:inherit;color:inherit;background:none;border:
 /* ---------- nav bar + large title (M11) ---------- */
 .nav{position:relative;z-index:5;display:grid;grid-template-columns:1fr auto 1fr;align-items:center;min-height:44px;padding:var(--sat) var(--s2) 0;height:calc(44px + var(--sat));
   background:transparent;border-bottom:.5px solid transparent;transition:background 200ms,border-color 200ms}
-.nav-t{font-weight:600;font-size:var(--t-headline);text-align:center;max-width:56vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:0;transform:translateY(4px);transition:opacity 200ms var(--ease-out),transform 200ms var(--ease-out)}
+.nav-t{font-weight:600;font-size:min(var(--t-headline), 23px);text-align:center;max-width:56vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:0;transform:translateY(4px);transition:opacity 200ms var(--ease-out),transform 200ms var(--ease-out)}
 .nav-l{justify-self:start;display:flex}.nav-r{justify-self:end;display:flex;gap:var(--s1)}
 .nav.solid .nav-t,.scrolled .nav .nav-t{opacity:1;transform:none}
 .scrolled .nav,.nav.solid{background:var(--mat-bar);-webkit-backdrop-filter:var(--blur-bar);backdrop-filter:var(--blur-bar);border-bottom-color:var(--sep)}
+/* 3.5 scroll-edge blur bar (every scrolling screen): transparent at scrollTop 0; once content scrolls under it,
+   frosted material + 0.5pt hairline. Covers the status-bar safe area. Views with a nav bar: the nav (which already
+   spans the safe area) is the bar and overlays the scroller; views without one get a .sbar of safe-area height. */
+:root{--sbar-bg:rgba(250,248,243,.8);--sbar-line:rgba(27,31,30,.18);--sbar-blur:blur(20px)}
+@media (prefers-color-scheme:dark){:root{--sbar-bg:rgba(11,15,14,.8);--sbar-line:rgba(255,255,255,.14)}}
+.view:has(>.nav:not(.dark)+.scroll)>.nav{position:absolute;left:0;right:0;top:0;z-index:15}
+.view:has(>.nav:not(.dark)+.scroll)>.scroll{padding-top:calc(44px + var(--sat))}
+.view:has(>.scroll)>.nav:not(.dark){background:transparent;-webkit-backdrop-filter:none;backdrop-filter:none;border-bottom-color:transparent}
+.view.sc0:has(>.scroll)>.nav:not(.dark),.view.sc0>.sbar{background:var(--sbar-bg);-webkit-backdrop-filter:var(--sbar-blur);backdrop-filter:var(--sbar-blur);border-bottom-color:var(--sbar-line)}
+.sbar{position:absolute;left:0;right:0;top:0;height:var(--sat);z-index:30;pointer-events:none;background:transparent;border-bottom:.5px solid transparent;transition:background-color 200ms var(--ease-out),border-color 200ms var(--ease-out)}
+@media (prefers-reduced-motion:reduce){.sbar,.nav{transition:none!important}}
 .nav.dark{background:rgba(0,0,0,.6);border-bottom-color:transparent;color:#fff}.nav.dark .nav-t{opacity:1;transform:none}
 .nbtn{min-width:44px;min-height:44px;height:44px;display:flex;align-items:center;justify-content:center;gap:2px;color:var(--ink);font-size:var(--t-body);border-radius:var(--r-sm);padding:0 6px;transition:opacity 150ms}
 .nbtn:active{opacity:.4}.nbtn.back{padding-left:0}.nbtn.back .i{width:28px;height:28px;stroke-width:2.1;margin-right:-2px}
@@ -73,7 +84,9 @@ button{font:inherit;letter-spacing:inherit;color:inherit;background:none;border:
 .search:focus-within{box-shadow:0 0 0 3px var(--accent-wash)}
 .search .i{width:20px;height:20px}
 .search input{flex:1;min-width:0;border:0;background:transparent;font:inherit;font-size:var(--t-body);color:var(--ink);outline:none;height:100%;min-height:36px;-webkit-appearance:none}
-.search input::placeholder{color:var(--ink-2)}
+.search input::placeholder{color:var(--ink-2);opacity:1}
+@media (prefers-color-scheme:light){.search input::placeholder,.search{color:#636366}} /* #6c6c70 is 4.27:1 on the #ebe8e1 search fill; #636366 = 4.87:1 */
+input::placeholder,textarea::placeholder{color:var(--ink-2);opacity:1} /* secondary text #6c6c70 / #a1a1a6; --ink-3s is for strokes only */
 .search input::-webkit-search-cancel-button{-webkit-appearance:none}
 @media (prefers-color-scheme:dark){.search{background:var(--surface-2)}}
 
@@ -204,7 +217,7 @@ button.cell:active{background:var(--surface-3)}
 .foot{display:flex;gap:var(--s2);align-items:flex-start;color:var(--ink-2);font-size:var(--t-footnote);line-height:1.385;margin:var(--s3) var(--s4)}
 .foot .i{width:16px;height:16px;margin-top:1px}
 .foot.small{justify-content:center;text-align:center;margin-top:var(--s6)}
-.foot.about{flex-direction:column;align-items:center;gap:2px}.foot.about span{color:var(--ink-3s)}
+.foot.about{flex-direction:column;align-items:center;gap:2px}.foot.about span{color:var(--ink-2)}
 .switch{position:relative;width:51px;height:31px;flex-shrink:0}
 .switch input{opacity:0;position:absolute;inset:0;margin:0;z-index:1;cursor:pointer}
 .switch span{position:absolute;inset:0;border-radius:16px;background:var(--surface-3);transition:background 250ms}
@@ -398,7 +411,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;margin-top:-12px
 .seg button.on{background:var(--surface-1);box-shadow:0 3px 8px rgba(0,0,0,.12),0 3px 1px rgba(0,0,0,.04);font-weight:600}
 @media (prefers-color-scheme:dark){.seg{background:var(--surface-2)}.seg button.on{background:#636366}}
 .textcard{background:var(--surface-1);border-radius:var(--r-md);box-shadow:var(--e1);padding:var(--s4);min-height:200px;font-size:var(--t-body);line-height:calc(24px + var(--dt) * 1.15);white-space:pre-wrap;word-break:break-word}
-.textcard:empty::before{content:attr(data-empty);color:var(--ink-3s)}
+.textcard:empty::before{content:attr(data-empty);color:var(--ink-2)}
 
 /* ---------- signature ---------- */
 .sigwrap{flex:1;display:flex;align-items:center;justify-content:center;padding:var(--s4)}
@@ -434,7 +447,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;margin-top:-12px
 .field{background:var(--surface-1);border-radius:var(--r-md);box-shadow:var(--e1);margin-top:var(--s2);overflow:hidden}
 .field input{display:block;width:100%;border:0;background:transparent;font:inherit;color:var(--ink);padding:14px var(--s4);outline:none}
 .field input + input{border-top:.5px solid var(--sep)}
-.field input::placeholder{color:var(--ink-3s)}
+.field input::placeholder{color:var(--ink-2);opacity:1}
 .result{background:var(--accent-wash);color:var(--ink);border-radius:var(--r-md);padding:14px var(--s4);margin-top:var(--s4);font-size:var(--t-subhead);display:flex;gap:10px;align-items:center}
 .result .i{color:var(--accent-text)}
 .result:empty{display:none}
@@ -710,3 +723,8 @@ mark{background:var(--accent-wash);color:inherit;border-radius:3px;padding:0 1px
 .ax .fd b{padding-right:3ch}
 .ax .dgrid{grid-template-columns:1fr}
 .ax .dc .thumb{height:160px}
+
+/* 3.5 fix-2: small glyphs follow the text at accessibility sizes (0.8em, never below their default) */
+.ax .nbtn.back .i{width:max(28px,calc(1em * .8));height:max(28px,calc(1em * .8))}
+.ax .foot .i,.ax .rowc .chev{width:max(18px,calc(1em * .8));height:max(18px,calc(1em * .8))}
+.ax .search .i{width:max(20px,calc(1em * .8));height:max(20px,calc(1em * .8))}

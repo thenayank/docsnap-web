@@ -85,6 +85,7 @@ function show(id, mode = 'push') {
   $('tabbar').classList.toggle('hide', !TABS.includes(tabOf));
   document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('on', t.dataset.tab === tabOf));
   document.body.classList.toggle('in-md', MD_VIEWS.includes(id));
+  syncBar(to);
   syncHistory();
 }
 // ---- History integration: iOS edge-swipe / browser Back = in-app Back; Back closes sheets & alerts first ----
@@ -135,6 +136,25 @@ document.querySelectorAll('.view').forEach((v) => {
   const sc = v.querySelector('.scroll'); if (!sc) return;
   sc.addEventListener('scroll', () => v.classList.toggle('scrolled', sc.scrollTop > 36), { passive: true });
 });
+
+// 3.5 scroll-edge blur bar: .sc0 on the view whenever its vertical scroller is off the top (any view, any scroller).
+// Views without a nav bar get a .sbar (status-bar safe area) to carry the material. Horizontal scrollers are ignored.
+const isVScroller = (e) => e instanceof Element && /(auto|scroll)/.test(getComputedStyle(e).overflowY) && !e.closest('.m-bsheet,.sheet,.m-viewer');
+function syncBar(v, sc) {
+  if (!v) return;
+  if (!sc) sc = [...v.querySelectorAll('.scroll,.m-scroll,.m-flow')].find((e) => e.getClientRects().length);
+  if (!sc) { v.classList.remove('sc0'); return; }
+  if (!v.querySelector(':scope > .nav') && !v.querySelector(':scope > .sbar')) v.append(el('div', { class: 'sbar', 'aria-hidden': 'true' }));
+  v.classList.toggle('sc0', sc.scrollTop > 0);
+}
+document.addEventListener('scroll', (e) => {
+  const t = e.target; if (!(t instanceof Element) || !isVScroller(t)) return;
+  syncBar(t.closest('.view'), t);
+}, { capture: true, passive: true });
+document.querySelectorAll('.view').forEach((v) => syncBar(v));
+// re-rendered My Docs content can replace the scroller itself (no scroll event), so re-sync on content swaps
+const barMO = new MutationObserver((ms) => ms.forEach((m) => syncBar(m.target.closest('.view'))));
+['mdMain', 'mdFlow', 'mdPw', 'mdDoc', 'mdBk'].forEach((id) => $(id) && barMO.observe($(id), { childList: true }));
 
 // ---------- toasts & HUD ----------
 function toast(msg, kind = 'ok', opt = {}) {

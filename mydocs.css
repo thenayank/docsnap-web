@@ -145,7 +145,8 @@
 .ax .m-slot .m-sbadge{height:auto;padding:2px 8px}
 .ax .m-nudge{flex-wrap:wrap}
 .ax .m-pill{white-space:normal}
-.ax .m-code .g{grid-template-columns:1fr}.ax .m-code .g div.last{grid-column:auto;width:auto;justify-self:stretch}
+/* recovery card keeps its 2-column 7×4 layout at AX sizes so the whole card fits one screen: the group number is capped (iOS-style) and tracking tightened */
+.ax .m-code .g div{letter-spacing:2px;padding:4px 2px}.ax .m-code .g small{font-size:min(calc(13px + var(--dt) * 0.86), 17px);margin-right:6px}
 .ax .m-list .m-row,.ax .m-stc,.ax .m-tr{flex-wrap:wrap}
 .ax .m-list .m-row .v{text-align:left;flex-basis:100%}
 .ax .m-cards{grid-template-columns:1fr}
@@ -289,3 +290,25 @@
 /* Documents tab: search moves into a field under the large title (3.5) */
 #home .search{margin:4px 0 12px}
 #home.searching #homeHero,#home.searching #homeFolders,#home.searching #homeRecentH,#home.searching #docList,#home.searching .empty{display:none}
+
+/* ---- fix-2 (Vision re-QC nice-to-haves) ---- */
+.md input::placeholder,.md textarea::placeholder{color:var(--m-ink2);opacity:1}
+/* 06b: at accessibility sizes the sheet title gets its own row, so "‹ Back" and "Preview" don't read as one phrase */
+.ax .m-hd b{order:3;flex-basis:100%;text-align:left}
+/* small glyphs (chevrons, lock, info, + Scan, checks, close) scale with their text at accessibility sizes: 0.8em, min 18px */
+.ax .md :is(.m-lk .i,.m-row>.i.ch,.m-chip .i,.m-slot.empty .scanl .i,.m-xb .i,.m-dl .i,.m-more .i,.m-ck .i,.m-cb .bx .i){width:max(18px,calc(1em * .8))!important;height:max(18px,calc(1em * .8))!important}
+.ax .md :is(.m-nav .m-bk .i,.m-hd .c .i){width:max(26px,calc(1em * .8))!important;height:max(26px,calc(1em * .8))!important}
+.ax .m-cb .bx{width:max(26px,calc(1em * 1.05));height:max(26px,calc(1em * 1.05))}
+/* 04: progress bar on its own full-width row at accessibility sizes */
+.ax .m-prog{flex-wrap:wrap;row-gap:6px}
+.ax .m-prog .bar{flex:0 0 100%;width:100%;height:4px}
+/* AX: recovery-card header wraps ("DEMO" drops to its own line instead of colliding); countdown pill text stays centred */
+.ax .m-code .lab{flex-wrap:wrap;column-gap:12px}
+.m-cd{text-align:center}
+.ax .m-cd{padding:8px 22px;row-gap:0;border-radius:28px}
+/* placeholders need >= 4.5:1: the watermark field sits on the white field colour (6c6c70 on efece5 was 4.4:1) */
+.m-tr input{background:var(--m-field);box-shadow:inset 0 0 0 1px var(--m-dash)}
+/* larger glyphs next to body text also follow the text at AX sizes (never below their default) */
+.ax .md :is(.m-amber .i,.m-fld .eye .i){width:max(22px,calc(1em * .8))!important;height:max(22px,calc(1em * .8))!important}
+.ax .md .m-nudge .ni .i{width:max(24px,calc(1em * .8))!important;height:max(24px,calc(1em * .8))!important}
+.ax .md .m-searchf .i{width:max(20px,calc(1em * .8))!important;height:max(20px,calc(1em * .8))!important}

@@ -50,7 +50,7 @@
 }}
 @media (prefers-color-scheme:dark){:root{
   --canvas:#0b0f0e; --surface-1:#151a19; --surface-2:#1c2221; --surface-3:#242b2a; --well:#1c2221;
-  --ink:#f2f4f3; --ink-2:#8e8e93; --ink-3:rgba(242,244,243,.28); --ink-3s:#5f6466;
+  --ink:#f2f4f3; --ink-2:#a1a1a6; --ink-3:rgba(242,244,243,.28); --ink-3s:#5f6466;
   --sep:rgba(255,255,255,.07); --sep-strong:rgba(255,255,255,.12);
   --accent:#2dd4bf; --accent-text:#2dd4bf; --accent-strong:#2dd4bf; --on-accent:#00201c;
   --accent-glow:rgba(45,212,191,.40); --accent-wash:rgba(45,212,191,.12);
