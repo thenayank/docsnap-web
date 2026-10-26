@@ -336,7 +336,7 @@ const MD = (() => {
     if (staleGuard()) return;
     flow(`${navHtml('Back', '')}<div class="m-display" style="margin-top:4px">Recovery code</div>
       <div class="m-sub" style="margin-top:6px;font-size:calc(17px + var(--dt) * 1);line-height:1.294">Kagaz par likha 28-character code daalein. Dash, space ya chhote-bade akshar se fark nahi padta.</div>
-      <div class="m-fl"><div class="lab">Recovery code</div><label class="m-fld"><input id="mdRc" class="code" autocomplete="off" autocapitalize="characters" spellcheck="false" inputmode="text" placeholder="XXXX-XXXX-XXXX-…" aria-label="Recovery code"></label>
+      <div class="m-fl"><div class="lab">Recovery code</div><label class="m-fld m-fld-code"><textarea id="mdRc" class="code" rows="2" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" inputmode="text" enterkeyhint="go" placeholder="XXXX XXXX XXXX XXXX XXXX XXXX XXXX" aria-label="Recovery code, 28 characters"></textarea></label>
       <div class="m-inl" id="mdRcErr" role="alert"></div></div>
       <div id="mdRcLock" class="m-rlock" role="status" hidden></div>
       </div><div class="m-bot"><button class="m-btnp" id="mdRcGo" disabled>Continue</button>`, { back: () => backFromRecovery(from) });
@@ -359,8 +359,22 @@ const MD = (() => {
       tick(); rcTimer = setInterval(tick, 1000);
     };
     Promise.resolve().then(() => Vault.recLockInfo()).then((l) => { if (l.lockedFor > 0 && $('mdRc') === inp) lockout(l); }).catch(() => {});
-    inp.oninput = () => { go.disabled = locked || !Vault.validCode(inp.value); showErr(''); };
-    inp.onkeydown = (e) => { if (e.key === 'Enter' && !go.disabled) go.click(); };
+    // Shown as 7 groups of 4 separated by spaces so the whole code wraps between groups (QC 3.5.1). Only the separators are
+    // touched here; Vault.normCode/validCode still do the real normalisation (case, O→0, I/L→1, dash/space/_/.).
+    const SEP = /[\s\-_.]/g, raw = (v) => v.replace(SEP, ''), group = (r) => (r.match(/.{1,4}/g) || []).join(' ');
+    const fit = () => { inp.style.height = 'auto'; inp.style.height = inp.scrollHeight + 'px'; };
+    let prevRaw = '';
+    const fmt = (e) => {
+      const v = inp.value, at = inp.selectionStart == null ? v.length : inp.selectionStart; let r = raw(v), n = raw(v.slice(0, at)).length;
+      // backspace over a group space: delete the character before it instead of re-adding the space forever
+      if (e && e.inputType === 'deleteContentBackward' && r === prevRaw && n > 0) { r = r.slice(0, n - 1) + r.slice(n); n--; }
+      const out = group(r); prevRaw = r;
+      if (out !== v) { inp.value = out; const pos = n + Math.max(0, Math.ceil(n / 4) - 1) + (n && n % 4 === 0 && n < r.length ? 1 : 0); if (document.activeElement === inp) inp.setSelectionRange(pos, pos); }
+      fit();
+    };
+    inp.oninput = (e) => { fmt(e); go.disabled = locked || !Vault.validCode(inp.value); showErr(''); };
+    inp.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); if (!go.disabled) go.click(); } };
+    requestAnimationFrame(fit);
     $('mdBack').onclick = () => backFromRecovery(from);
     go.onclick = async () => {
       go.disabled = true; busy('Code check ho raha hai…');

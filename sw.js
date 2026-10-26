@@ -1,5 +1,5 @@
-const VERSION = 'docsnap-v16'; // 3.5.1 recovery lockout, strict backup header, Aadhaar QR both sides
-const BUILD = '3.5.1'; // must match the ?v= on the <script>/<link> tags in index.html
+const BUILD = '3.5.1'; // app version; must match the ?v= on the <script>/<link> tags in index.html
+const VERSION = 'docsnap-v16'; // cache name for BUILD 3.5.1 (live 3.5.0 = docsnap-v15); one bump per public release, not per pre-release commit
 const SHELL = ['./', 'index.html', 'tokens.css?v=' + BUILD, 'styles.css?v=' + BUILD, 'assets/paper-grain-128.png', 'app.js?v=' + BUILD, 'vision.js?v=' + BUILD, 'cvworker.js', 'detector-v2.js', 'detector-v3.js', 'manifest.webmanifest',
   'tools.js?v=' + BUILD, 'camera.js?v=' + BUILD, 'vault.js?v=' + BUILD, 'mydocs.js?v=' + BUILD, 'mydocs.css?v=' + BUILD, 'vendor/hash-wasm/argon2.umd.min.js', 'seg.html', 'seg.js', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png',
   'splash/splash-light-1179x2556.png', 'splash/splash-dark-1179x2556.png', 'splash/splash-light-1290x2796.png', 'splash/splash-dark-1290x2796.png', 'splash/splash-light-1170x2532.png', 'splash/splash-dark-1170x2532.png', 'splash/splash-light-1125x2436.png', 'splash/splash-dark-1125x2436.png', 'splash/splash-light-1284x2778.png', 'splash/splash-dark-1284x2778.png', 'splash/splash-light-828x1792.png', 'splash/splash-dark-828x1792.png', 'splash/splash-light-1242x2688.png', 'splash/splash-dark-1242x2688.png', 'splash/splash-light-750x1334.png', 'splash/splash-dark-750x1334.png'];

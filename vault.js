@@ -179,8 +179,10 @@ const Vault = (() => {
     });
     return out;
   }
-  /** PIN, Face ID and recovery attempts run one at a time (in-page queue): lock check → Argon2 → counter update can't interleave,
-      so N parallel wrong tries are counted as N (attempts that arrive after the lock kicks in are refused before Argon2). */
+  /** PIN and recovery-code attempts run one at a time (in-page queue): lock check → Argon2 → counter update can't interleave,
+      so N parallel wrong tries are counted as N (attempts that arrive after the lock kicks in are refused before Argon2).
+      unlockPrf (Face ID) is deliberately NOT queued: it never touches a counter, and a pending passkey prompt must not
+      block a PIN or recovery attempt behind it. */
   let gate = Promise.resolve();
   const serial = (fn) => (...a) => { const p = gate.then(() => fn(...a)); gate = p.catch(() => {}); return p; };
   const unlockPin = serial(async function unlockPin(pin) {

@@ -259,6 +259,10 @@
 .m-fld input{flex:1;min-width:0;min-height:48px;border:0;background:none;font:inherit;font-size:calc(17px + var(--dt) * 1);color:var(--ink);outline:none;padding:0}
 .m-fld input[type=password]{font-size:calc(20px + var(--dt) * 0.97);letter-spacing:3px}
 .m-fld input.code{font:600 calc(17px + var(--dt) * 1) 'DejaVu Sans Mono',ui-monospace,monospace;letter-spacing:1px;text-transform:uppercase}
+/* recovery code: textarea, ≤4 groups per line ("XXXX " = 5 ch) so 28 chars show in full as 4+3 at 390pt and wrap between groups at larger text */
+.m-fld-code{align-items:flex-start}
+.m-fld textarea.code{flex:1;min-width:0;max-width:calc(20 * (1ch + 1px));display:block;border:0;background:none;resize:none;overflow:hidden;outline:none;margin:0;padding:12px 0;font:600 calc(17px + var(--dt) * 1)/1.35 'DejaVu Sans Mono',ui-monospace,monospace;letter-spacing:1px;text-transform:uppercase;color:var(--ink);white-space:pre-wrap;word-break:normal;overflow-wrap:anywhere;-webkit-appearance:none;appearance:none;border-radius:0}
+.m-fld textarea.code::placeholder{color:var(--m-ink2);opacity:.7}
 .m-fld .eye{width:44px;height:44px;display:flex;align-items:center;justify-content:center;color:var(--m-ink2);margin-right:3px;flex:none}
 .m-fld .eye .i{width:22px;height:22px}
 .m-meter{margin-top:10px;display:flex;align-items:center;gap:10px}
