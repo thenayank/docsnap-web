@@ -9,6 +9,26 @@ const MD = (() => {
   const FINAL_LINE = 'Naye phone par documents sirf do tarah se milenge: iPhone ka iCloud backup restore karke recovery code daalne par, ya DocSnap backup file import karne par. Isliye DocSnap backup zaroor lein.';
   const DELETE_LINE = 'DocSnap icon delete karne se saara data mit jaata hai. Pehle backup lein.';
   const DIGILOCKER = 'https://www.digilocker.gov.in/';
+  // ---- version guard (Shuri 3.5.1 item 11): after an update the browser can briefly mix a new mydocs.js with an old vault.js.
+  // Never run a half-wired screen on a mismatched vault: show a friendly "updating" screen with a reload button instead.
+  const VAULT_API = 351, VAULT_NEED = ['state', 'unlockPin', 'unlockRecovery', 'recLockInfo', 'lockInfo', 'finishRecovery', 'validCode', 'readBackup', 'parseBackupHeader', 'exportBackup', 'restore', 'setup'];
+  const vaultOk = () => typeof Vault === 'object' && Vault !== null && (Vault.API || 0) >= VAULT_API && VAULT_NEED.every((f) => typeof Vault[f] === 'function');
+  function staleGuard() {
+    if (vaultOk()) return false;
+    if (document.getElementById('mdUpd')) return true;
+    const d = document.createElement('div'); d.id = 'mdUpd'; d.className = 'm-upd'; d.setAttribute('role', 'alertdialog'); d.setAttribute('aria-modal', 'true'); d.setAttribute('aria-labelledby', 'mdUpdT');
+    d.innerHTML = `<div class="m-wrap"><div class="m-mk">${ic('refresh')}</div><h1 class="m-h1" id="mdUpdT">Update ho raha hai</h1>
+      <div class="m-s">DocSnap ka naya version aa gaya hai. App dobara kholein. Aapke documents safe hain.</div>
+      <button class="m-btnp" id="mdUpdGo" style="margin-top:28px">Dobara kholein</button></div>`;
+    document.body.append(d);
+    $('mdUpdGo').onclick = async () => {
+      $('mdUpdGo').disabled = true;
+      try { const r = 'serviceWorker' in navigator && await navigator.serviceWorker.getRegistration(); if (r) await Promise.race([r.update(), wait(3000)]); } catch (e) { /* offline: plain reload */ }
+      location.reload();
+    };
+    setTimeout(() => $('mdUpdGo') && $('mdUpdGo').focus(), 50);
+    return true;
+  }
   // ---- slot types (10 per member, Other last) ----
   const TYPES = [
     { k: 'aadhaar', n: 'Aadhaar', full: 'Aadhaar', short: 'Aadhaar', mode: 'card', sides: 2, mask: true, alias: 'aadhaar aadhar uid uidai' },
@@ -46,6 +66,8 @@ const MD = (() => {
     replace: '<path d="M4.5 12a7.5 7.5 0 0 1 13-5.1L20 9.5M20 4.5v5h-5"/><path d="M19.5 12a7.5 7.5 0 0 1-13 5.1L4 14.5M4 19.5v-5h5"/>',
     eye: '<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/>',
     eyeoff: '<path d="M4 4l16 16"/><path d="M9.9 6c.7-.3 1.4-.5 2.1-.5 6 0 9.5 6.5 9.5 6.5a17 17 0 0 1-2.6 3.4M6.5 7.6A16 16 0 0 0 2.5 12S6 18.5 12 18.5c1.6 0 3-.5 4.2-1.2"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/>',
+    trash: '<path d="M4.5 6.5h15M9.5 6.5V4.8c0-.7.5-1.3 1.2-1.3h2.6c.7 0 1.2.6 1.2 1.3v1.7M6.5 6.5l.8 12.2c.1 1 .9 1.8 1.9 1.8h5.6c1 0 1.8-.8 1.9-1.8l.8-12.2M10 10.5v6M14 10.5v6"/>',
+    refresh: '<path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3"/><path d="M19.5 4.5v4h-4"/>',
     key: '<circle cx="8" cy="15" r="4.5"/><path d="M11.2 11.8 20 3M17 6l2.5 2.5M14.5 8.5 16.5 10.5"/>',
     del2: '<path d="M9 5.5h10.5a1.5 1.5 0 0 1 1.5 1.5v10a1.5 1.5 0 0 1-1.5 1.5H9L3 12z"/><path d="m11.5 9.5 5 5M16.5 9.5l-5 5"/>',
     cal: '<rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
@@ -77,6 +99,7 @@ const MD = (() => {
   async function refreshCache() { st.cached = await Vault.state(); st.prfOn = await Vault.hasPrf().catch(() => false); st.grace = await Vault.getGrace().catch(() => 0); return st.cached; }
   /** Tab tapped. Runs synchronously into Face ID when possible so iOS keeps the user gesture. */
   function open(fromTap) {
+    if (staleGuard()) return;
     if (Vault.isUnlocked()) { renderHome(); return; }
     if (st.cached === 'locked') {
       renderLock();
@@ -310,6 +333,7 @@ const MD = (() => {
   }
   // ---- recovery: Forgot PIN / new phone ----
   function recoveryEntry(from) {
+    if (staleGuard()) return;
     flow(`${navHtml('Back', '')}<div class="m-display" style="margin-top:4px">Recovery code</div>
       <div class="m-sub" style="margin-top:6px;font-size:calc(17px + var(--dt) * 1);line-height:1.294">Kagaz par likha 28-character code daalein. Dash, space ya chhote-bade akshar se fark nahi padta.</div>
       <div class="m-fl"><div class="lab">Recovery code</div><label class="m-fld"><input id="mdRc" class="code" autocomplete="off" autocapitalize="characters" spellcheck="false" inputmode="text" placeholder="XXXX-XXXX-XXXX-…" aria-label="Recovery code"></label>
@@ -334,7 +358,7 @@ const MD = (() => {
       };
       tick(); rcTimer = setInterval(tick, 1000);
     };
-    Vault.recLockInfo().then((l) => { if (l.lockedFor > 0 && $('mdRc') === inp) lockout(l); }).catch(() => {});
+    Promise.resolve().then(() => Vault.recLockInfo()).then((l) => { if (l.lockedFor > 0 && $('mdRc') === inp) lockout(l); }).catch(() => {});
     inp.oninput = () => { go.disabled = locked || !Vault.validCode(inp.value); showErr(''); };
     inp.onkeydown = (e) => { if (e.key === 'Enter' && !go.disabled) go.click(); };
     $('mdBack').onclick = () => backFromRecovery(from);
@@ -733,7 +757,7 @@ const MD = (() => {
       <div class="m-seg" role="radiogroup" aria-label="Format"><button class="${s.fmt === 'pdf' ? 'on' : ''}" data-f="pdf" role="radio" aria-checked="${s.fmt === 'pdf'}">PDF</button><button class="${s.fmt === 'img' ? 'on' : ''}" data-f="img" role="radio" aria-checked="${s.fmt === 'img'}">Image</button></div>
       <div class="m-cap" style="margin-top:12px;font-weight:400;font-size:calc(15px + var(--dt) * 0.94);line-height:1.333">${t.mask ? 'Number aur QR ke upar box rakhein. Box ko kheench kar khiskayein, kono se chhota-bada karein.' : 'Number chhupana ho to toggle on karein aur box kheenchein.'}</div>
       <div class="m-well2 m-cards" style="margin-top:10px">${d.pages.map((_, i) => `<div class="m-slab"><b>${lbl(i)}</b>${t.mask && i < 2 ? (hasKind(s, i, 'num') ? 'Number' : 'Number nahi') : sub(i)}${qrChip(i)}</div><div class="m-mask" data-p="${i}" style="height:${Math.round(254 / s.asp[i])}px"><img src="${cur.urls[i]}" alt="${lbl(i)}"></div>`).join('')}
-        ${s.mask ? `<div class="m-mhint">${s.sel ? 'Box chuna gaya · <b>×</b> se hatayein' : 'Box par tap karke chunein · khaali jagah par kheench kar naya box'}</div>` : ''}</div>
+        ${s.mask ? selBar(s, t) : ''}</div>
       <div class="m-card" style="margin-top:12px">
         <div class="m-tr"><div class="t">Number chhupayein<small class="tnum">${t.mask ? `Aadhaar par zaroori · ${status}` : s.mask ? `${boxCount(s)} box · image par kheench kar aur jodein` : 'Off'}</small></div><button class="m-toggle${s.mask ? ' on' : ''}" id="mdMaskT" role="switch" aria-checked="${s.mask}" aria-label="Number chhupayein"${t.mask ? ' aria-disabled="true"' : ''}></button></div>
         <div class="m-tr"><div class="t">Add watermark<small>Jaise "Only for KYC at ___"</small>${s.wm ? `<input id="mdWm" maxlength="40" placeholder="Only for KYC at ___" value="${esc(s.wmText)}" aria-label="Watermark text">` : ''}</div><button class="m-toggle${s.wm ? ' on' : ''}" id="mdWmT" role="switch" aria-checked="${s.wm}" aria-label="Add watermark"></button></div>
@@ -741,6 +765,8 @@ const MD = (() => {
       <button class="m-btnp" id="mdShPrev" style="margin-top:14px"${t.mask && !ms.ok ? ' disabled' : ''}>Preview</button>
       ${t.mask && !ms.ok ? `<div class="m-cap m-warn" role="status">${ic('warn')}<span>${ms.num < ms.n ? 'Har side par number ke upar box zaroori hai.' : 'QR ko kam se kam ek side par chhupayein.'}</span></div>` : ''}`;
     sh.querySelectorAll('[data-qr]').forEach((b) => (b.onclick = () => toggleQr(+b.dataset.qr)));
+    sh.querySelectorAll('[data-kind]').forEach((b) => (b.onclick = () => setBoxKind(b.dataset.kind)));
+    if ($('mdBoxDel')) $('mdBoxDel').onclick = delBox;
     $('mdShX').onclick = () => closeShare();
     sh.querySelectorAll('[data-f]').forEach((b) => (b.onclick = () => { s.fmt = b.dataset.f; shareStep1(); }));
     $('mdMaskT').onclick = () => {
@@ -752,10 +778,22 @@ const MD = (() => {
     $('mdShPrev').onclick = sharePreview;
     sh.querySelectorAll('.m-mask').forEach((m) => wireMask(m, +m.dataset.p));
   }
+  /** Selected-box toolbar under the cards (replaces the old × on the box, which sat on top of the resize handles — Shuri 3.5.1).
+      Every control is ≥44pt and nowhere near a handle. Aadhaar boxes can be switched between Number and QR. */
+  function selBar(s, t) {
+    const b = s.sel && s.boxes[s.sel.p] && s.boxes[s.sel.p][s.sel.j];
+    if (!b) return '<div class="m-mhint">Box par tap karke chunein · khaali jagah par kheench kar naya box</div>';
+    const side = sideLbl(s.d, s.sel.p), kinds = t.mask ? [['num', 'Number'], ['qr', 'QR']] : [];
+    return `<div class="m-seltb" role="toolbar" aria-label="Chuna hua box · ${side}"><span class="m-seltl">${side}</span>
+      ${kinds.length ? `<div class="m-kseg" role="radiogroup" aria-label="Box kis cheez ke upar hai">${kinds.map(([k, l]) => `<button data-kind="${k}" role="radio" aria-checked="${b.kind === k}" class="${b.kind === k ? 'on' : ''}">${l}</button>`).join('')}</div>` : '<span style="flex:1"></span>'}
+      <button class="m-bdel" id="mdBoxDel" aria-label="${side} ka chuna hua box hatayein">${ic('trash')}Hatayein</button></div>`;
+  }
+  function setBoxKind(k) { const s = st.share; if (!s.sel) return; const b = s.boxes[s.sel.p][s.sel.j]; if (b) b.kind = k; shareStep1(); }
+  function delBox() { const s = st.share; if (!s.sel) return; s.boxes[s.sel.p].splice(s.sel.j, 1); s.sel = null; shareStep1(); }
   function boxEl(b, j, H, sel) {
     const txt = b.kind === 'num' ? 'XXXX XXXX' : b.kind === 'qr' ? 'QR' : '';
     const name = b.kind === 'num' ? 'Number' : b.kind === 'qr' ? 'QR' : 'Mask';
-    return `<div class="m-box ${b.kind}${sel ? ' sel' : ''}" data-j="${j}" style="left:${b.x * 100}%;top:${b.y * 100}%;width:${b.w * 100}%;height:${b.h * 100}%;font-size:${b.kind === 'qr' ? 10.6 : Math.max(8, b.h * H * 0.78).toFixed(1)}px" role="img" aria-label="${name} box">${txt}${sel ? '<button class="m-bx" data-del="1" aria-label="Box hatayein">×</button>' : ''}${['0,0', '100%,0', '0,100%', '100%,100%'].map((p, k) => { const [x, y] = p.split(','); return `<i data-h="${k}" style="left:${x};top:${y}"></i>`; }).join('')}</div>`;
+    return `<div class="m-box ${b.kind}${sel ? ' sel' : ''}" data-j="${j}" style="left:${b.x * 100}%;top:${b.y * 100}%;width:${b.w * 100}%;height:${b.h * 100}%;font-size:${b.kind === 'qr' ? 10.6 : Math.max(8, b.h * H * 0.78).toFixed(1)}px" role="img" aria-label="${name} box">${txt}${['0,0', '100%,0', '0,100%', '100%,100%'].map((p, k) => { const [x, y] = p.split(','); return `<i data-h="${k}" style="left:${x};top:${y}"></i>`; }).join('')}</div>`;
   }
   function wireMask(m, p) {
     const s = st.share; const H = m.clientHeight || 159;
@@ -763,12 +801,30 @@ const MD = (() => {
     const draw = () => { m.querySelectorAll('.m-box').forEach((e) => e.remove()); if (s.mask) m.insertAdjacentHTML('beforeend', s.boxes[p].map((b, j) => boxEl(b, j, H, isSel(j))).join('')); };
     draw();
     let drag = null;
+    // Resize handles: the nearest corner within 22pt (a 44pt target) wins, so the four corner targets never overlap each other
+    // even on a 20pt-tall number box. The selected box is checked first.
+    const nearHandle = (e) => {
+      const r = m.getBoundingClientRect(), R = 22;
+      const hit = (j) => { const b = s.boxes[p][j]; let best = null;
+        [[b.x, b.y], [b.x + b.w, b.y], [b.x, b.y + b.h], [b.x + b.w, b.y + b.h]].forEach(([x, y], k) => {
+          const d = Math.hypot(e.clientX - (r.left + x * r.width), e.clientY - (r.top + y * r.height));
+          if (d <= R && (!best || d < best.d)) best = { j, k, d }; });
+        return best; };
+      if (s.sel && s.sel.p === p && s.boxes[p][s.sel.j]) { const h = hit(s.sel.j); if (h) return h; }
+      let best = null; s.boxes[p].forEach((_, j) => { const h = hit(j); if (h && (!best || h.d < best.d)) best = h; });
+      return best;
+    };
     const fr = (e) => { const r = m.getBoundingClientRect(); return { x: Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)), y: Math.max(0, Math.min(1, (e.clientY - r.top) / r.height)) }; };
     m.onpointerdown = (e) => {
-      if (!s.mask) return; const pt = fr(e), be = e.target.closest('.m-box'), h = e.target.dataset && e.target.dataset.h;
-      if (be && e.target.dataset.del) { s.boxes[p].splice(+be.dataset.j, 1); s.sel = null; e.preventDefault(); shareStep1(); return; }
-      if (be) { const j = +be.dataset.j, b = s.boxes[p][j]; drag = h != null ? { j, mode: 'h', k: +h, b0: { ...b } } : { j, mode: 'm', o: { x: pt.x - b.x, y: pt.y - b.y } }; }
-      else { s.boxes[p].push({ x: pt.x, y: pt.y, w: 0.001, h: 0.001, kind: 'box' }); drag = { j: s.boxes[p].length - 1, mode: 'new', a: pt }; }
+      if (!s.mask) return; const pt = fr(e), be = e.target.closest('.m-box');
+      const hh = nearHandle(e);
+      if (hh) { const b = s.boxes[p][hh.j]; drag = { j: hh.j, mode: 'h', k: hh.k, b0: { ...b } }; }
+      else if (be) { const j = +be.dataset.j, b = s.boxes[p][j]; drag = { j, mode: 'm', o: { x: pt.x - b.x, y: pt.y - b.y } }; }
+      else {
+        // a drawn box covers whatever is still missing on this side (number first), so Preview can never get stuck; type can be changed in the toolbar
+        const kind = T[s.d.type].mask && p < 2 ? (!hasKind(s, p, 'num') ? 'num' : 'box') : 'box';
+        s.boxes[p].push({ x: pt.x, y: pt.y, w: 0.001, h: 0.001, kind }); drag = { j: s.boxes[p].length - 1, mode: 'new', a: pt };
+      }
       m.setPointerCapture(e.pointerId); e.preventDefault();
     };
     m.onpointermove = (e) => {
@@ -784,10 +840,9 @@ const MD = (() => {
     m.onpointerup = () => {
       if (!drag) return; const b = s.boxes[p][drag.j];
       if (drag.mode === 'new') { if (b.w < 0.03 || b.h < 0.03) { s.boxes[p].splice(drag.j, 1); s.sel = null; } else s.sel = { p, j: drag.j }; }
-      else s.sel = { p, j: drag.j }; // tap or drag selects the box → shows its × button
+      else s.sel = { p, j: drag.j }; // tap or drag selects the box → shows the toolbar (type + Hatayein) below the cards
       drag = null; shareStep1();
     };
-    m.ondblclick = (e) => { const be = e.target.closest('.m-box'); if (!be) return; s.boxes[p].splice(+be.dataset.j, 1); s.sel = null; shareStep1(); };
   }
   /** Burn mask boxes into pixels (canvas), re-encode via canvas (drops EXIF/metadata). Returns a canvas. */
   async function burn(blob, boxes) {
@@ -887,6 +942,7 @@ const MD = (() => {
 
   // ======================================================================= backup (07 / 07b) + import
   function openBackup(from) {
+    if (staleGuard()) return;
     if (!Vault.isUnlocked()) { st.after = 'backup'; goTab('mydocs'); return; }
     st.bkFrom = from || (curView === 'settings' ? 'settings' : 'mydocs');
     renderBackup(); if (curView !== 'mdbackup') show('mdbackup', 'push');
@@ -957,6 +1013,7 @@ const MD = (() => {
     };
   }
   async function importFlow(fresh) {
+    if (staleGuard()) return;
     const files = await pickFiles(''); if (!files.length) return;
     renderPwImport(files[0], fresh);
   }
@@ -967,7 +1024,7 @@ const MD = (() => {
       <div class="m-display" style="margin-top:2px">Backup kholein</div>
       <div class="m-sub" style="margin-top:6px;font-size:calc(17px + var(--dt) * 1);line-height:1.294">${esc(file.name)} · backup password daalein. Ye password PIN se alag hai.</div>
       ${pwField('mdPwI', 'Backup password')}<div class="m-inl" id="mdPwErr" role="alert"></div></div>
-      </div><div class="m-bot"><button class="m-btnp" id="mdPwGo">Import</button><div class="m-cap" style="text-align:center;margin-top:12px;font-weight:400">Galat password par kuch nahi badalta.</div></div></div>`;
+      </div><div class="m-bot"><button class="m-btnp" id="mdPwGo" disabled>Import</button><div class="m-cap" style="text-align:center;margin-top:12px;font-weight:400">Galat password par kuch nahi badalta.</div></div></div>`;
     show('mdbpw', 'up'); wireEyes(w);
     const back2 = () => { w.innerHTML = ''; if (fresh) { show('mydocs', 'down'); open(false); } else show('mdbackup', 'down'); };
     $('mdPwX').onclick = back2;
@@ -981,8 +1038,11 @@ const MD = (() => {
       errEl.classList.add('on');
       const pk = $('mdPwPick'); if (pk) pk.onclick = async () => { const f = await pickFiles(''); if (f.length) renderPwImport(f[0], fresh); };
     };
-    inp.onkeydown = (e) => { if (e.key === 'Enter') $('mdPwGo').click(); }; inp.oninput = () => showErr('');
-    $('mdPwGo').onclick = async () => {
+    // Import stays disabled until something is typed (an empty password used to surface a third, generic message — Shuri 3.5.1)
+    const goB = $('mdPwGo'), sync = () => { goB.disabled = !inp.value.length; };
+    inp.onkeydown = (e) => { if (e.key === 'Enter' && !goB.disabled) goB.click(); }; inp.oninput = () => { showErr(''); sync(); };
+    goB.onclick = async () => {
+      if (!inp.value.length) { sync(); return; }
       busy('Backup khul raha hai…'); let data;
       try { data = await Vault.readBackup(file, inp.value); } catch (e) { busy(); showErr(e && e.code); if (typeof haptic === 'function') haptic('delete'); return; }
       inp.value = ''; busy();
@@ -1038,10 +1098,10 @@ const MD = (() => {
     $('mdDocActs').querySelector('[data-a=more]').onclick = () => cur && moreDoc();
     const ax = () => document.documentElement.classList.toggle('ax', parseFloat(getComputedStyle(document.documentElement).fontSize) >= 28);
     ax(); addEventListener('resize', ax);
-    refreshCache();
+    if (vaultOk()) refreshCache();
   }
   init();
-  return { open, lockNow, renderHome, saveScan, scanCancelled, openBackup, settingsRows, back, moveFromDocuments, isOpen: () => Vault.isUnlocked(), st, TYPES,
+  return { vaultOk, staleGuard, open, lockNow, renderHome, saveScan, scanCancelled, openBackup, settingsRows, back, moveFromDocuments, isOpen: () => Vault.isUnlocked(), st, TYPES,
     _test: { renderPwImport, startCapture, openDetail, openShare, shareStep1, sharePreview, composeOut, pdfFromJpegs, burn, renderLock, recoveryEntry, renderNewDevice, renderIntro, refreshCache, addDoc: async (member, type, blobs, extra = {}) => {
       const v = { member, type }; const put = [], pages = [], thumbs = []; let aspect = 1.6;
       for (let i = 0; i < blobs.length; i++) { const bm = await createImageBitmap(blobs[i]); if (!i) aspect = bm.width / bm.height; const id = Vault.newId(); put.push([id, new Uint8Array(await blobs[i].arrayBuffer())]); pages.push(id); if (i < 2) { const tid = Vault.newId(); put.push([tid, new Uint8Array(await (await thumbOf(bm)).arrayBuffer())]); thumbs.push(tid); } bm.close(); }

@@ -16,6 +16,7 @@ const Vault = (() => {
   const CROCK = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
   const LOCK_STEPS = [60e3, 300e3, 900e3]; // 5 wrong PINs → 1 min, then 5, then 15 min
   const PIN_TRIES = 5;
+  const API = 351; // bumped whenever mydocs.js needs new Vault functions; mydocs.js refuses to run on an older vault.js
   const stats = []; // Argon2id timings (ms) — read by tests and the About row
   const rnd = (n) => crypto.getRandomValues(new Uint8Array(n));
   const cat = (...a) => { const o = new Uint8Array(a.reduce((s, x) => s + x.length, 0)); let i = 0; for (const x of a) { o.set(x, i); i += x.length; } return o; };
@@ -161,14 +162,28 @@ const Vault = (() => {
   async function lockInfo() { const c = await cfg(); return lockOf(c && c.lock); }
   /** Recovery-code attempts have their own counter (cfg.rlock), same rule as the PIN: 5 wrong → 1 min, then 5, then 15 min. Persists in IndexedDB. */
   async function recLockInfo() { const c = await cfg(); return lockOf(c && c.rlock); }
-  /** One more wrong attempt on counter `key` ('lock' | 'rlock'). Re-reads cfg so a parallel attempt is never lost. */
+  /** One more wrong attempt on counter `key` ('lock' | 'rlock'). The read + increment + write happen inside ONE IndexedDB
+      readwrite transaction, so two increments (even from two tabs) can't overwrite each other. */
   async function failAttempt(key) {
-    const c2 = await cfg(); const fails = ((c2[key] && c2[key].fails) || 0) + 1; let until = 0;
-    if (fails >= PIN_TRIES) until = Date.now() + LOCK_STEPS[Math.min(fails - PIN_TRIES, LOCK_STEPS.length - 1)];
-    c2[key] = { fails, until }; await putCfg(c2);
-    return { ok: false, err: until ? 'locked' : 'wrong', until, fails, left: Math.max(0, PIN_TRIES - fails) };
+    const d = await open(); let out;
+    await new Promise((res, rej) => {
+      const t = d.transaction('cfg', 'readwrite'), os = t.objectStore('cfg'), g = os.get('cfg');
+      g.onsuccess = () => {
+        const c2 = g.result; if (!c2) { t.abort(); return; }
+        const fails = ((c2[key] && c2[key].fails) || 0) + 1; let until = 0;
+        if (fails >= PIN_TRIES) until = Date.now() + LOCK_STEPS[Math.min(fails - PIN_TRIES, LOCK_STEPS.length - 1)];
+        c2[key] = { fails, until }; os.put(c2, 'cfg');
+        out = { ok: false, err: until ? 'locked' : 'wrong', until, fails, left: Math.max(0, PIN_TRIES - fails) }; C = structuredClone(c2);
+      };
+      t.oncomplete = () => res(); t.onerror = () => rej(t.error); t.onabort = () => rej(t.error || err('NO_VAULT'));
+    });
+    return out;
   }
-  async function unlockPin(pin) {
+  /** PIN, Face ID and recovery attempts run one at a time (in-page queue): lock check → Argon2 → counter update can't interleave,
+      so N parallel wrong tries are counted as N (attempts that arrive after the lock kicks in are refused before Argon2). */
+  let gate = Promise.resolve();
+  const serial = (fn) => (...a) => { const p = gate.then(() => fn(...a)); gate = p.catch(() => {}); return p; };
+  const unlockPin = serial(async function unlockPin(pin) {
     const c = await cfg(); if (!c) throw err('NO_VAULT');
     const l = c.lock || { fails: 0, until: 0 };
     if (l.until > Date.now()) return { ok: false, err: 'locked', until: l.until, fails: l.fails };
@@ -179,7 +194,7 @@ const Vault = (() => {
     if (!dkRaw) return failAttempt('lock');
     c2.lock = { fails: 0, until: 0 }; await putCfg(c2);
     await begin(dkRaw, null); await loadIndex(); return { ok: true };
-  }
+  });
   // WebAuthn PRF (Face ID / Touch ID passkey)
   const prfSupported = () => !!(window.PublicKeyCredential && navigator.credentials && window.isSecureContext && !/^\d+\.\d+\.\d+\.\d+$/.test(location.hostname));
   async function prfEval(credId, salt) {
@@ -214,7 +229,7 @@ const Vault = (() => {
     catch (e) { wipe(out); return { ok: false, err: e.code === 'NO_DEVICE_SECRET' ? 'newdevice' : 'nomatch' }; }
   }
   /** Recovery code: opens DK without the device secret. The vault stays in "recovering" state (not usable) until finishRecovery(newPin). */
-  async function unlockRecovery(code) {
+  const unlockRecovery = serial(async function unlockRecovery(code) {
     if (!validCode(code)) return { ok: false, err: 'format' };
     const c = await cfg(); if (!c) throw err('NO_VAULT');
     const l = c.rlock || { fails: 0, until: 0 };
@@ -224,7 +239,7 @@ const Vault = (() => {
     if (!dkRaw) return failAttempt('rlock');
     const c2 = await cfg(); c2.rlock = { fails: 0, until: 0 }; await putCfg(c2);
     S = { dkRaw, dk: await importDk(dkRaw), index: null, recovering: true }; return { ok: true };
-  }
+  });
   /** Mandatory after a recovery-code unlock: new PIN, new device secret, new DK (re-encrypt everything), new recovery code.
       All of it lands in one IndexedDB transaction, so the old code stops working the moment this resolves. Returns the new code. */
   async function finishRecovery(newPin) {
@@ -318,6 +333,7 @@ const Vault = (() => {
   async function readBackup(file, password) {
     let buf; try { buf = new Uint8Array(await file.arrayBuffer()); } catch (e) { throw err('READ_FAILED', 'Ye file nahi khul saki. Dobara chunein.'); }
     const H = parseBackupHeader(buf);
+    if (!String(password == null ? '' : password).length) throw err('DECRYPT_FAILED', DECRYPT_MSG); // empty password: same message as a wrong one
     let key;
     try { key = await hkdf(await argon(te.encode(String(password)), H.salt, H.kdf, 'backup'), 'docsnap backup v1'); }
     catch (e) { throw err(e.code === 'ARGON_LOAD' ? 'ARGON_LOAD' : 'READ_FAILED', e.code === 'ARGON_LOAD' ? 'Encryption engine load nahi hua. Internet on karke dobara koshish karein.' : 'Backup abhi nahi khul saka. App band karke dobara koshish karein.'); }
@@ -356,7 +372,7 @@ const Vault = (() => {
   async function _raw() { const out = {}; for (const s of ['cfg', 'dev', 'rec']) { out[s] = {}; for (const k of await keys(s)) out[s][k] = await get(s, k); } return out; }
   async function destroy() { lock(); await write([['cfg', 'clear'], ['dev', 'clear'], ['rec', 'clear']]); }
 
-  return { KDF, stats, state, setup, unlockPin, unlockPrf, unlockRecovery, finishRecovery, changePin, enablePrf, disablePrf, hasPrf, prfSupported, lock, lockInfo, recLockInfo,
+  return { API, KDF, stats, state, setup, unlockPin, unlockPrf, unlockRecovery, finishRecovery, changePin, enablePrf, disablePrf, hasPrf, prfSupported, lock, lockInfo, recLockInfo,
     isUnlocked, recovering: () => !!(S && S.recovering), index: () => S && S.index, saveIndex, putBlob, getBlob, delBlobs, commit, newId,
-    exportBackup, readBackup, parseBackupHeader, restore, markBackup, setGrace, getGrace, genCode, normCode, validCode, fmtCode, strength, argon, ensureArgon, destroy, _forgetDevice, _raw, CROCK };
+    exportBackup, readBackup, parseBackupHeader, restore, markBackup, setGrace, getGrace, genCode, normCode, validCode, fmtCode, strength, argon, ensureArgon, destroy, _forgetDevice, _raw, _failAttempt: failAttempt, CROCK };
 })();
