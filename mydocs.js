@@ -267,7 +267,7 @@ const MD = (() => {
     const pin = await newPin({ back: 'Back', step: 'Step 2 of 5', sub: 'Ye PIN aapke documents ko encrypt karta hai.', cap: 'PIN is phone se juda rehta hai. Agle step mein dobara daalein.', onBack: () => (fromBackup ? renderNewDevice() : renderIntro()) });
     busy('Encrypting…');
     let code;
-    try { code = await Vault.setup(pin, fromBackup || {}); } catch (e) { busy(); toast('Setup nahi ho paya: ' + e.message, 'err'); return; }
+    try { code = await Vault.setup(pin, fromBackup || {}); } catch (e) { busy(); console.warn('setup', e); toast('Setup nahi ho paya. Dobara koshish karein.', 'err'); return; }
     busy(); persist(); await refreshCache();
     st.setupCode = code;
     setupFace();
@@ -314,26 +314,52 @@ const MD = (() => {
       <div class="m-sub" style="margin-top:6px;font-size:calc(17px + var(--dt) * 1);line-height:1.294">Kagaz par likha 28-character code daalein. Dash, space ya chhote-bade akshar se fark nahi padta.</div>
       <div class="m-fl"><div class="lab">Recovery code</div><label class="m-fld"><input id="mdRc" class="code" autocomplete="off" autocapitalize="characters" spellcheck="false" inputmode="text" placeholder="XXXX-XXXX-XXXX-…" aria-label="Recovery code"></label>
       <div class="m-inl" id="mdRcErr" role="alert"></div></div>
+      <div id="mdRcLock" class="m-rlock" role="status" hidden></div>
       </div><div class="m-bot"><button class="m-btnp" id="mdRcGo" disabled>Continue</button>`, { back: () => backFromRecovery(from) });
     const inp = $('mdRc'), go = $('mdRcGo');
-    inp.oninput = () => { go.disabled = !Vault.validCode(inp.value); $('mdRcErr').textContent = ''; };
+    let locked = false;
+    const showErr = (t) => { const e = $('mdRcErr'); e.innerHTML = t ? `${ic('warn')}<span>${esc(t)}</span>` : ''; e.classList.toggle('on', !!t); };
+    // Same rule as the PIN (5 wrong → 1, 5, 15 min). The counter lives in the vault cfg, so a reload doesn't reset it.
+    const lockout = (l) => {
+      clearInterval(rcTimer); locked = true; showErr('');
+      const box = $('mdRcLock'), step = l.fails <= 5 ? 1 : l.fails === 6 ? 5 : 15;
+      box.hidden = false; inp.disabled = true; go.disabled = true; inp.closest('.m-fld').classList.add('off');
+      box.innerHTML = `<div class="m-msg">${l.fails} baar galat code. ${step} minute baad dobara koshish karein</div>
+        <div class="m-cd tnum" role="timer" aria-live="off">Dobara koshish <b id="mdRcCd">0:00</b></div>
+        <div class="m-note">Aur galat code par wait badhta hai: 1, 5, 15 min. Aapka data kabhi delete nahi hota.</div>`;
+      const tick = () => {
+        const ms = l.until - Date.now(), e = $('mdRcCd'); if (!e) return clearInterval(rcTimer);
+        if (ms <= 0) { clearInterval(rcTimer); locked = false; box.hidden = true; box.innerHTML = ''; inp.disabled = false; inp.closest('.m-fld').classList.remove('off'); go.disabled = !Vault.validCode(inp.value); return; }
+        const sec = Math.ceil(ms / 1000); e.textContent = `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
+      };
+      tick(); rcTimer = setInterval(tick, 1000);
+    };
+    Vault.recLockInfo().then((l) => { if (l.lockedFor > 0 && $('mdRc') === inp) lockout(l); }).catch(() => {});
+    inp.oninput = () => { go.disabled = locked || !Vault.validCode(inp.value); showErr(''); };
     inp.onkeydown = (e) => { if (e.key === 'Enter' && !go.disabled) go.click(); };
     $('mdBack').onclick = () => backFromRecovery(from);
     go.onclick = async () => {
       go.disabled = true; busy('Code check ho raha hai…');
-      const r = await Vault.unlockRecovery(inp.value); busy();
-      if (!r.ok) { $('mdRcErr').textContent = r.err === 'format' ? 'Code 28 characters ka hona chahiye.' : 'Ye code sahi nahi hai. Kagaz se dobara milayein.'; go.disabled = false; if (typeof haptic === 'function') haptic('delete'); return; }
+      let r; try { r = await Vault.unlockRecovery(inp.value); } catch (e) { r = { ok: false, err: 'error' }; } busy();
+      if (!r.ok) {
+        if (typeof haptic === 'function') haptic('delete');
+        if (r.err === 'locked') return lockout(await Vault.recLockInfo());
+        showErr(r.err === 'format' ? 'Code 28 characters ka hona chahiye.' : r.err === 'wrong' ? `Ye code sahi nahi hai. Kagaz se dobara milayein. ${r.left} ${r.left === 1 ? 'koshish' : 'koshish'} baaki.` : 'Code abhi check nahi ho paya. Dobara koshish karein.');
+        go.disabled = false; return;
+      }
+      clearInterval(rcTimer);
       inp.value = '';
       afterRecovery();
     };
     setTimeout(() => inp.focus(), 400);
   }
-  function backFromRecovery() { closeFlow('mydocs'); refreshCache().then(() => open(false)); }
+  let rcTimer = 0;
+  function backFromRecovery() { clearInterval(rcTimer); closeFlow('mydocs'); refreshCache().then(() => open(false)); }
   async function afterRecovery() {
     st.noAutoLock = false;
     const pin = await newPin({ step: 'Step 1 of 2', title: 'Naya 6-digit PIN', sub: 'Recovery code sahi hai. Ab naya PIN banana zaroori hai.', cap: 'Ye step skip nahi ho sakta. Agle step mein PIN dobara daalein.', forced: true });
     busy('Naya code ban raha hai…');
-    let code; try { code = await Vault.finishRecovery(pin); } catch (e) { busy(); toast('Couldn’t finish: ' + e.message, 'err'); return; }
+    let code; try { code = await Vault.finishRecovery(pin); } catch (e) { busy(); console.warn('finishRecovery', e); toast('Naya PIN set nahi ho paya. Dobara koshish karein.', 'err'); return; }
     busy(); await refreshCache(); persist();
     await showCode(code, { title: 'Naya recovery code', sub: 'Purana code ab kaam nahi karega. Ye naya code sirf ek baar dikhega, isliye ise kagaz par likh lein.', step: 'Step 2 of 2', btn: 'Done', forced: true });
     code = null; closeFlow('mydocs'); renderHome(); toast('My Docs khul gaya · naya PIN set');
@@ -667,9 +693,10 @@ const MD = (() => {
   async function openShare() {
     const d = cur.d, t = T[d.type], n = d.pages.length;
     const boxes = d.pages.map(() => []);
-    if (t.mask) { boxes[0].push({ ...AAD_BOX.num }); if (n > 1) boxes[1].push({ ...AAD_BOX.num }, { ...AAD_BOX.qr }); }
+    // Aadhaar: number + QR box on BOTH sides by default (PVC/e-Aadhaar print the QR on the front too). User can drag/resize, or switch QR off per side.
+    if (t.mask) for (let i = 0; i < Math.min(n, 2); i++) boxes[i].push({ ...AAD_BOX.num }, { ...AAD_BOX.qr });
     const asp = []; for (let i = 0; i < n; i++) { const b = await Vault.getBlob(d.pages[i]); const bm = await createImageBitmap(b); asp.push(bm.width / bm.height); bm.close(); await pageUrl(i); }
-    st.share = { d, fmt: 'pdf', mask: !!t.mask, wm: false, wmText: '', boxes, asp, step: 1, out: null };
+    st.share = { d, fmt: 'pdf', mask: !!t.mask, wm: false, wmText: '', boxes, asp, step: 1, out: null, sel: null, qrMem: [] };
     const root = document.createElement('div'); root.className = 'md'; root.id = 'mdShare';
     root.innerHTML = '<div class="m-dimmer"></div><div class="m-bsheet" role="dialog" aria-modal="true" aria-label="Share"></div>';
     root.querySelector('.m-dimmer').onclick = () => closeShare();
@@ -681,21 +708,39 @@ const MD = (() => {
     st.share = null; r.remove();
   }
   const boxCount = (s) => s.boxes.reduce((a, b) => a + b.length, 0);
+  const sideLbl = (d, i) => (T[d.type].sides === 2 && d.pages.length <= 2 ? (i ? 'Back' : 'Front') : `Page ${i + 1}`);
+  const hasKind = (s, i, k) => s.boxes[i].some((b) => b.kind === k);
+  /** Aadhaar rule: a number box on each side (first two pages) and the QR covered on at least one side. */
+  function maskState(s) {
+    const n = Math.min(s.d.pages.length, 2), sides = [...Array(n).keys()];
+    const num = sides.filter((i) => hasKind(s, i, 'num')).length, qr = sides.filter((i) => hasKind(s, i, 'qr'));
+    return { n, num, qr, open: sides.filter((i) => !hasKind(s, i, 'qr')), ok: num === n && qr.length > 0 };
+  }
+  function toggleQr(p) {
+    const s = st.share, j = s.boxes[p].findIndex((b) => b.kind === 'qr');
+    if (j >= 0) { s.qrMem[p] = s.boxes[p][j]; s.boxes[p] = s.boxes[p].filter((b) => b.kind !== 'qr'); }
+    else s.boxes[p].push({ ...(s.qrMem[p] || AAD_BOX.qr) });
+    s.sel = null; shareStep1();
+  }
   function shareStep1() {
     const s = st.share, d = s.d, t = T[d.type], sh = $('mdShare').querySelector('.m-bsheet'); s.step = 1;
-    const lbl = (i) => (t.sides === 2 && d.pages.length <= 2 ? (i ? 'Back' : 'Front') : `Page ${i + 1}`);
-    const sub = (i) => s.boxes[i].map((b) => (b.kind === 'qr' ? 'QR' : 'Number')).filter((v, j, a) => a.indexOf(v) === j).join(', ');
-    const need = t.mask ? (d.pages.length > 1 ? 3 : 1) : 0;
+    const lbl = (i) => sideLbl(d, i);
+    const sub = (i) => s.boxes[i].map((b) => (b.kind === 'qr' ? 'QR' : 'Number')).filter((v, j, a) => a.indexOf(v) === j).join(', ') || 'Koi box nahi';
+    const ms = maskState(s), qrChip = (i) => (t.mask && i < 2 ? `<button class="m-qrc${hasKind(s, i, 'qr') ? ' on' : ''}" data-qr="${i}" role="switch" aria-checked="${hasKind(s, i, 'qr')}" aria-label="${lbl(i)} par QR chhupayein">${ic(hasKind(s, i, 'qr') ? 'check' : 'plus')}QR</button>` : '');
+    const status = t.mask ? `Number ${ms.num}/${ms.n} · QR ${ms.qr.length ? ms.qr.map(lbl).join(' + ') : 'nahi chhupa'}` : '';
     sh.innerHTML = `<div class="m-grab"></div>
       <div class="m-hd"><button class="c" id="mdShX">Cancel</button><b>Share ${esc(t.short === 'document' ? 'document' : t.short)}</b><span class="r m-step tnum">Step 1 of 2</span></div>
       <div class="m-seg" role="radiogroup" aria-label="Format"><button class="${s.fmt === 'pdf' ? 'on' : ''}" data-f="pdf" role="radio" aria-checked="${s.fmt === 'pdf'}">PDF</button><button class="${s.fmt === 'img' ? 'on' : ''}" data-f="img" role="radio" aria-checked="${s.fmt === 'img'}">Image</button></div>
-      <div class="m-cap" style="margin-top:12px;font-weight:400;font-size:calc(15px + var(--dt) * 0.94);line-height:1.333">${t.mask ? 'Number aur QR ke upar box kheench kar chhupayein. Aadhaar par ye zaroori hai.' : 'Number chhupana ho to toggle on karein aur box kheenchein.'}</div>
-      <div class="m-well2 m-cards" style="margin-top:10px">${d.pages.map((_, i) => `<div class="m-slab"><b>${lbl(i)}</b>${sub(i)}</div><div class="m-mask" data-p="${i}" style="height:${Math.round(254 / s.asp[i])}px"><img src="${cur.urls[i]}" alt="${lbl(i)}"></div>`).join('')}</div>
+      <div class="m-cap" style="margin-top:12px;font-weight:400;font-size:calc(15px + var(--dt) * 0.94);line-height:1.333">${t.mask ? 'Number aur QR ke upar box rakhein. Box ko kheench kar khiskayein, kono se chhota-bada karein.' : 'Number chhupana ho to toggle on karein aur box kheenchein.'}</div>
+      <div class="m-well2 m-cards" style="margin-top:10px">${d.pages.map((_, i) => `<div class="m-slab"><b>${lbl(i)}</b>${t.mask && i < 2 ? (hasKind(s, i, 'num') ? 'Number' : 'Number nahi') : sub(i)}${qrChip(i)}</div><div class="m-mask" data-p="${i}" style="height:${Math.round(254 / s.asp[i])}px"><img src="${cur.urls[i]}" alt="${lbl(i)}"></div>`).join('')}
+        ${s.mask ? `<div class="m-mhint">${s.sel ? 'Box chuna gaya · <b>×</b> se hatayein' : 'Box par tap karke chunein · khaali jagah par kheench kar naya box'}</div>` : ''}</div>
       <div class="m-card" style="margin-top:12px">
-        <div class="m-tr"><div class="t">Number chhupayein<small class="tnum">${t.mask ? `Aadhaar par zaroori · ${Math.min(boxCount(s), need)} of ${need} boxes lage` : s.mask ? `${boxCount(s)} box · image par kheench kar aur jodein` : 'Off'}</small></div><button class="m-toggle${s.mask ? ' on' : ''}" id="mdMaskT" role="switch" aria-checked="${s.mask}" aria-label="Number chhupayein"${t.mask ? ' aria-disabled="true"' : ''}></button></div>
+        <div class="m-tr"><div class="t">Number chhupayein<small class="tnum">${t.mask ? `Aadhaar par zaroori · ${status}` : s.mask ? `${boxCount(s)} box · image par kheench kar aur jodein` : 'Off'}</small></div><button class="m-toggle${s.mask ? ' on' : ''}" id="mdMaskT" role="switch" aria-checked="${s.mask}" aria-label="Number chhupayein"${t.mask ? ' aria-disabled="true"' : ''}></button></div>
         <div class="m-tr"><div class="t">Add watermark<small>Jaise "Only for KYC at ___"</small>${s.wm ? `<input id="mdWm" maxlength="40" placeholder="Only for KYC at ___" value="${esc(s.wmText)}" aria-label="Watermark text">` : ''}</div><button class="m-toggle${s.wm ? ' on' : ''}" id="mdWmT" role="switch" aria-checked="${s.wm}" aria-label="Add watermark"></button></div>
       </div>
-      <button class="m-btnp" id="mdShPrev" style="margin-top:14px"${t.mask && boxCount(s) < need ? ' disabled' : ''}>Preview</button>`;
+      <button class="m-btnp" id="mdShPrev" style="margin-top:14px"${t.mask && !ms.ok ? ' disabled' : ''}>Preview</button>
+      ${t.mask && !ms.ok ? `<div class="m-cap m-warn" role="status">${ic('warn')}<span>${ms.num < ms.n ? 'Har side par number ke upar box zaroori hai.' : 'QR ko kam se kam ek side par chhupayein.'}</span></div>` : ''}`;
+    sh.querySelectorAll('[data-qr]').forEach((b) => (b.onclick = () => toggleQr(+b.dataset.qr)));
     $('mdShX').onclick = () => closeShare();
     sh.querySelectorAll('[data-f]').forEach((b) => (b.onclick = () => { s.fmt = b.dataset.f; shareStep1(); }));
     $('mdMaskT').onclick = () => {
@@ -707,24 +752,28 @@ const MD = (() => {
     $('mdShPrev').onclick = sharePreview;
     sh.querySelectorAll('.m-mask').forEach((m) => wireMask(m, +m.dataset.p));
   }
-  function boxEl(b, j, H) {
+  function boxEl(b, j, H, sel) {
     const txt = b.kind === 'num' ? 'XXXX XXXX' : b.kind === 'qr' ? 'QR' : '';
-    return `<div class="m-box ${b.kind}" data-j="${j}" style="left:${b.x * 100}%;top:${b.y * 100}%;width:${b.w * 100}%;height:${b.h * 100}%;font-size:${b.kind === 'qr' ? 10.6 : Math.max(8, b.h * H * 0.78).toFixed(1)}px" aria-label="Mask box">${txt}${['0,0', '100%,0', '0,100%', '100%,100%'].map((p, k) => { const [x, y] = p.split(','); return `<i data-h="${k}" style="left:${x};top:${y}"></i>`; }).join('')}</div>`;
+    const name = b.kind === 'num' ? 'Number' : b.kind === 'qr' ? 'QR' : 'Mask';
+    return `<div class="m-box ${b.kind}${sel ? ' sel' : ''}" data-j="${j}" style="left:${b.x * 100}%;top:${b.y * 100}%;width:${b.w * 100}%;height:${b.h * 100}%;font-size:${b.kind === 'qr' ? 10.6 : Math.max(8, b.h * H * 0.78).toFixed(1)}px" role="img" aria-label="${name} box">${txt}${sel ? '<button class="m-bx" data-del="1" aria-label="Box hatayein">×</button>' : ''}${['0,0', '100%,0', '0,100%', '100%,100%'].map((p, k) => { const [x, y] = p.split(','); return `<i data-h="${k}" style="left:${x};top:${y}"></i>`; }).join('')}</div>`;
   }
   function wireMask(m, p) {
     const s = st.share; const H = m.clientHeight || 159;
-    const draw = () => { m.querySelectorAll('.m-box').forEach((e) => e.remove()); if (s.mask) m.insertAdjacentHTML('beforeend', s.boxes[p].map((b, j) => boxEl(b, j, H)).join('')); };
+    const isSel = (j) => s.sel && s.sel.p === p && s.sel.j === j;
+    const draw = () => { m.querySelectorAll('.m-box').forEach((e) => e.remove()); if (s.mask) m.insertAdjacentHTML('beforeend', s.boxes[p].map((b, j) => boxEl(b, j, H, isSel(j))).join('')); };
     draw();
     let drag = null;
     const fr = (e) => { const r = m.getBoundingClientRect(); return { x: Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)), y: Math.max(0, Math.min(1, (e.clientY - r.top) / r.height)) }; };
     m.onpointerdown = (e) => {
       if (!s.mask) return; const pt = fr(e), be = e.target.closest('.m-box'), h = e.target.dataset && e.target.dataset.h;
+      if (be && e.target.dataset.del) { s.boxes[p].splice(+be.dataset.j, 1); s.sel = null; e.preventDefault(); shareStep1(); return; }
       if (be) { const j = +be.dataset.j, b = s.boxes[p][j]; drag = h != null ? { j, mode: 'h', k: +h, b0: { ...b } } : { j, mode: 'm', o: { x: pt.x - b.x, y: pt.y - b.y } }; }
       else { s.boxes[p].push({ x: pt.x, y: pt.y, w: 0.001, h: 0.001, kind: 'box' }); drag = { j: s.boxes[p].length - 1, mode: 'new', a: pt }; }
       m.setPointerCapture(e.pointerId); e.preventDefault();
     };
     m.onpointermove = (e) => {
       if (!drag) return; const pt = fr(e), b = s.boxes[p][drag.j];
+      drag.moved = true;
       if (drag.mode === 'm') { b.x = Math.max(0, Math.min(1 - b.w, pt.x - drag.o.x)); b.y = Math.max(0, Math.min(1 - b.h, pt.y - drag.o.y)); }
       else if (drag.mode === 'new') { b.x = Math.min(pt.x, drag.a.x); b.y = Math.min(pt.y, drag.a.y); b.w = Math.abs(pt.x - drag.a.x); b.h = Math.abs(pt.y - drag.a.y); }
       else { const o = drag.b0, L = drag.k % 2 === 0, Tp = drag.k < 2; const x2 = o.x + o.w, y2 = o.y + o.h;
@@ -732,8 +781,13 @@ const MD = (() => {
         b.x = nx; b.y = ny; b.w = (L ? x2 : Math.max(pt.x, o.x + 0.03)) - nx; b.h = (Tp ? y2 : Math.max(pt.y, o.y + 0.03)) - ny; }
       draw();
     };
-    m.onpointerup = () => { if (!drag) return; const b = s.boxes[p][drag.j]; if (drag.mode === 'new' && (b.w < 0.03 || b.h < 0.03)) s.boxes[p].splice(drag.j, 1); drag = null; shareStep1(); };
-    m.ondblclick = (e) => { const be = e.target.closest('.m-box'); if (!be) return; s.boxes[p].splice(+be.dataset.j, 1); shareStep1(); };
+    m.onpointerup = () => {
+      if (!drag) return; const b = s.boxes[p][drag.j];
+      if (drag.mode === 'new') { if (b.w < 0.03 || b.h < 0.03) { s.boxes[p].splice(drag.j, 1); s.sel = null; } else s.sel = { p, j: drag.j }; }
+      else s.sel = { p, j: drag.j }; // tap or drag selects the box → shows its × button
+      drag = null; shareStep1();
+    };
+    m.ondblclick = (e) => { const be = e.target.closest('.m-box'); if (!be) return; s.boxes[p].splice(+be.dataset.j, 1); s.sel = null; shareStep1(); };
   }
   /** Burn mask boxes into pixels (canvas), re-encode via canvas (drops EXIF/metadata). Returns a canvas. */
   async function burn(blob, boxes) {
@@ -797,11 +851,16 @@ const MD = (() => {
   }
   async function sharePreview() {
     const s = st.share; busy('Preview ban raha hai…');
-    try { if (s.out) s.out.urls.forEach((u) => URL.revokeObjectURL(u)); s.out = await composeOut(); } catch (e) { busy(); toast('Preview nahi bana: ' + e.message, 'err'); return; }
+    try { if (s.out) s.out.urls.forEach((u) => URL.revokeObjectURL(u)); s.out = await composeOut(); } catch (e) { busy(); console.warn('preview', e); toast('Preview nahi bana. Dobara koshish karein.', 'err'); return; }
     busy(); s.step = 2;
     const d = s.d, t = T[d.type], f = s.out.files, l4 = last4(d), sh = $('mdShare').querySelector('.m-bsheet');
-    const checks = [];
-    if (s.mask && t.mask) { checks.push(`Front number: ${l4 ? `<span class="m-mono2">XXXX XXXX ${esc(l4)}</span>` : 'chhupa hua'}`); if (d.pages.length > 1) checks.push(`Back number: ${l4 ? `<span class="m-mono2">XXXX XXXX ${esc(l4)}</span>` : 'chhupa hua'}`, 'QR code chhupa hua'); }
+    const checks = [], warns = [];
+    if (s.mask && t.mask) {
+      const ms = maskState(s), L = (i) => sideLbl(d, i);
+      for (let i = 0; i < ms.n; i++) checks.push(`${L(i)} number: ${l4 ? `<span class="m-mono2">XXXX XXXX ${esc(l4)}</span>` : 'chhupa hua'}`);
+      if (ms.qr.length) checks.push(`QR code chhupa hua: ${ms.qr.map(L).join(' aur ')}`);
+      if (ms.open.length) warns.push(`${ms.open.map(L).join(' aur ')} par QR khula hai. QR mein poora Aadhaar number hota hai.`);
+    }
     else if (s.mask) checks.push(`${boxCount(s)} box${boxCount(s) > 1 ? 'es' : ''} se number chhupa hua`);
     if (s.wm) checks.push(`Watermark: ${esc(s.wmText.trim() || 'Only for KYC')}`);
     sh.innerHTML = `<div class="m-grab"></div>
@@ -809,11 +868,11 @@ const MD = (() => {
       <div style="font-size:calc(15px + var(--dt) * 0.94);line-height:1.333;color:var(--m-ink2)">Yahi file share hogi. Ek baar dhyan se dekh lein.</div>
       <div class="m-pgw" style="margin-top:10px"><div class="m-pgp"><img src="${s.out.prev}" alt="Preview of the file to share"></div>
         <div class="m-cap tnum" style="text-align:center;margin-top:10px">${s.fmt === 'pdf' ? 'PDF' : 'Image'} · ${s.out.pages} ${s.fmt === 'pdf' ? 'page' : 'photo'}${s.out.pages > 1 ? 's' : ''} · ${esc(f.length > 1 ? f.length + ' files' : f[0].name)}</div></div>
-      <div style="margin-top:12px;display:flex;flex-direction:column;gap:2px">${checks.map((c) => `<div class="m-ck">${ic('check')}<span>${c}</span></div>`).join('')}</div>
+      <div style="margin-top:12px;display:flex;flex-direction:column;gap:2px">${checks.map((c) => `<div class="m-ck">${ic('check')}<span>${c}</span></div>`).join('')}${warns.map((c) => `<div class="m-ck m-ckw">${ic('warn')}<span>${c}</span></div>`).join('')}</div>
       <button class="m-btnp" id="mdShGo" style="margin-top:14px">Haan, ye share karein</button>
       <button class="m-btnt" id="mdShEdit" style="margin-top:2px">Mask badlein</button>
       <div class="m-cap" style="text-align:center;font-weight:400">File sirf memory mein banti hai aur share ke baad turant mit jaati hai.</div>`;
-    $('mdShBack').onclick = $('mdShEdit').onclick = () => { if (s.out) { s.out.urls.forEach((u) => URL.revokeObjectURL(u)); s.out = null; } shareStep1(); };
+    $('mdShBack').onclick = $('mdShEdit').onclick = () => { if (s.out) { s.out.urls.forEach((u) => URL.revokeObjectURL(u)); s.out = null; } s.sel = null; shareStep1(); };
     $('mdShGo').onclick = doShare;
   }
   async function doShare() {
@@ -884,7 +943,7 @@ const MD = (() => {
     $('mdPwX').onclick = () => { w.innerHTML = ''; show('mdbackup', 'down'); };
     go.onclick = async () => {
       if (go.disabled) return; go.disabled = true; busy('Backup encrypt ho raha hai…');
-      let blob; try { blob = await Vault.exportBackup(p1.value); } catch (e) { busy(); toast('Backup nahi bana: ' + (e.code === 'WEAK_PASSWORD' ? 'password kamzor hai' : e.message), 'err'); go.disabled = false; return; }
+      let blob; try { blob = await Vault.exportBackup(p1.value); } catch (e) { busy(); console.warn('export', e); toast(e.code === 'WEAK_PASSWORD' ? 'Backup nahi bana: password kamzor hai' : 'Backup nahi bana. Dobara koshish karein.', 'err'); go.disabled = false; return; }
       p1.value = p2.value = ''; busy();
       const d = new Date(), name = `DocSnap-MyDocs-${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}.docsnapvault`;
       const file = new File([blob], name, { type: 'application/octet-stream' });
@@ -912,16 +971,26 @@ const MD = (() => {
     show('mdbpw', 'up'); wireEyes(w);
     const back2 = () => { w.innerHTML = ''; if (fresh) { show('mydocs', 'down'); open(false); } else show('mdbackup', 'down'); };
     $('mdPwX').onclick = back2;
-    const inp = $('mdPwI'); inp.onkeydown = (e) => { if (e.key === 'Enter') $('mdPwGo').click(); }; inp.oninput = () => { $('mdPwErr').textContent = ''; };
+    const inp = $('mdPwI'), errEl = $('mdPwErr');
+    // Only these vetted strings ever reach the screen — never a raw library / JS error (Shuri 3.5.0 item 10).
+    const MSG = { BAD_FILE: 'Backup file kharab hai ya DocSnap ki nahi hai.', DECRYPT_FAILED: 'Password galat hai ya file kharab hai.', ARGON_LOAD: 'Encryption engine load nahi hua. Internet on karke dobara koshish karein.' };
+    const showErr = (code) => {
+      if (!code) { errEl.innerHTML = ''; errEl.classList.remove('on'); return; }
+      const t = MSG[code] || 'Backup abhi nahi khul saka. Dobara koshish karein.';
+      errEl.innerHTML = `${ic('warn')}<span>${esc(t)}${code === 'BAD_FILE' ? '<button class="m-dl" id="mdPwPick">Doosri file chunein</button>' : ''}</span>`;
+      errEl.classList.add('on');
+      const pk = $('mdPwPick'); if (pk) pk.onclick = async () => { const f = await pickFiles(''); if (f.length) renderPwImport(f[0], fresh); };
+    };
+    inp.onkeydown = (e) => { if (e.key === 'Enter') $('mdPwGo').click(); }; inp.oninput = () => showErr('');
     $('mdPwGo').onclick = async () => {
       busy('Backup khul raha hai…'); let data;
-      try { data = await Vault.readBackup(file, inp.value); } catch (e) { busy(); $('mdPwErr').textContent = e.code === 'WRONG_PASSWORD' ? 'Password sahi nahi hai. Koi data nahi badla.' : (e.message || 'Ye file nahi khul saki.'); if (typeof haptic === 'function') haptic('delete'); return; }
+      try { data = await Vault.readBackup(file, inp.value); } catch (e) { busy(); showErr(e && e.code); if (typeof haptic === 'function') haptic('delete'); return; }
       inp.value = ''; busy();
       const n = data.index.docs.length;
       if (fresh || !Vault.isUnlocked()) { w.innerHTML = ''; st.restored = true; toast(`${n} document mile · ab naya PIN banayein`); return setupPin({ index: data.index, blobs: data.blobs }); }
       const mode = await menu('Backup import', [{ label: 'Merge (dono rakhein)', value: 'merge', icon: 'merge' }, { label: 'Replace (abhi wale hata kar)', value: 'replace', icon: 'trash', danger: true }], `${n} document is backup mein hain.`);
       if (!mode) return;
-      busy('Import ho raha hai…'); try { await Vault.restore(data, mode); } catch (e) { busy(); toast('Import nahi hua: ' + e.message, 'err'); return; }
+      busy('Import ho raha hai…'); try { await Vault.restore(data, mode); } catch (e) { busy(); console.warn('restore', e); toast('Import nahi hua. Dobara koshish karein.', 'err'); return; }
       busy(); w.innerHTML = ''; st.member = null; renderBackup(); show('mdbackup', 'down'); toast(`${n} document import hue`);
     };
     setTimeout(() => inp.focus(), 400);
@@ -973,7 +1042,7 @@ const MD = (() => {
   }
   init();
   return { open, lockNow, renderHome, saveScan, scanCancelled, openBackup, settingsRows, back, moveFromDocuments, isOpen: () => Vault.isUnlocked(), st, TYPES,
-    _test: { startCapture, openDetail, openShare, shareStep1, sharePreview, composeOut, pdfFromJpegs, burn, renderLock, recoveryEntry, renderNewDevice, renderIntro, refreshCache, addDoc: async (member, type, blobs, extra = {}) => {
+    _test: { renderPwImport, startCapture, openDetail, openShare, shareStep1, sharePreview, composeOut, pdfFromJpegs, burn, renderLock, recoveryEntry, renderNewDevice, renderIntro, refreshCache, addDoc: async (member, type, blobs, extra = {}) => {
       const v = { member, type }; const put = [], pages = [], thumbs = []; let aspect = 1.6;
       for (let i = 0; i < blobs.length; i++) { const bm = await createImageBitmap(blobs[i]); if (!i) aspect = bm.width / bm.height; const id = Vault.newId(); put.push([id, new Uint8Array(await blobs[i].arrayBuffer())]); pages.push(id); if (i < 2) { const tid = Vault.newId(); put.push([tid, new Uint8Array(await (await thumbOf(bm)).arrayBuffer())]); thumbs.push(tid); } bm.close(); }
       const now = Date.now(), d = { id: Vault.newId(), member, type, name: `${memberOf(member).name} · ${T[type].n}`, expiry: null, notes: '', nameOnCard: '', number: '', pages, thumbs, aspect, added: now, updated: now, ...extra };

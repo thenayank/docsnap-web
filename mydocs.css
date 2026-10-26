@@ -313,3 +313,23 @@
 .ax .md .m-nudge .ni .i{width:max(24px,calc(1em * .8))!important;height:max(24px,calc(1em * .8))!important}
 .ax .md .m-searchf .i{width:max(20px,calc(1em * .8))!important;height:max(20px,calc(1em * .8))!important}
 .ax .m-hd{padding-top:6px}
+/* 3.5.1 — inline errors with icon, recovery lockout, mask editor (QR per side, select + delete) */
+.m-inl.on{display:flex;align-items:flex-start;gap:8px;padding:10px 12px;border-radius:12px;background:color-mix(in srgb,var(--danger) 9%,transparent);animation:mFade 180ms both}
+.m-inl.on>.i{width:20px;height:20px;flex:none;stroke-width:2.2;margin-top:0}
+.m-inl.on>span{flex:1;min-width:0}
+.m-inl .m-dl{display:flex;margin-top:4px;min-height:32px;padding:0;background:none;border:0;font:inherit;font-size:calc(15px + var(--dt) * 0.94);position:relative}
+.m-inl .m-dl::after{content:"";position:absolute;inset:-6px -4px}
+.m-rlock{margin-top:18px;padding:18px 14px 16px;border-radius:20px;background:var(--m-well);animation:mFade 200ms both}
+.m-rlock .m-msg{margin-top:0}
+.m-fld.off{opacity:.45;pointer-events:none}
+.m-qrc{margin-top:8px;display:flex;width:max-content;align-items:center;gap:4px;min-height:28px;padding:0 10px 0 7px;border-radius:14px;font:inherit;font-size:calc(13px + var(--dt) * 0.86);font-weight:600;background:var(--m-btn2);color:var(--ink);border:0;position:relative}
+.m-qrc::after{content:"";position:absolute;inset:-8px -6px}
+.m-qrc .i{width:14px;height:14px;stroke-width:2.6}
+.m-qrc.on{background:var(--accent);color:var(--on-accent)}
+.m-box.sel{outline:2px solid #2dd4bf;outline-offset:1px;box-shadow:0 0 0 4px rgba(45,212,191,.25)}
+.m-bx{position:absolute;right:-11px;top:-11px;width:22px;height:22px;border-radius:50%;border:0;padding:0;background:#ff3b30;color:#fff;font:700 15px/22px Inter,-apple-system,system-ui,sans-serif;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,.3);z-index:2}
+.m-bx::after{content:"";position:absolute;inset:-11px}
+.m-mhint{grid-column:1/-1;text-align:center;font-size:calc(13px + var(--dt) * 0.86);line-height:1.385;color:var(--m-ink2)}
+.m-warn{display:flex;align-items:center;justify-content:center;gap:6px;text-align:center;margin-top:8px;color:var(--warn);font-weight:500}
+.m-warn .i{width:16px;height:16px;flex:none;stroke-width:2.2}
+.m-ck.m-ckw{color:var(--warn);font-weight:500}.m-ck.m-ckw .i{color:var(--warn)}

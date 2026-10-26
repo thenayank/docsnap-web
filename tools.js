@@ -227,7 +227,7 @@ const TOOLS = {
     const data = localStorage.getItem('signature');
     openTool('My Signature', (body, cta) => {
       body.append(lead('Draw your signature once. Then open any page and tap Sign to place it.'));
-      body.append(el('div', { class: 'sigprev' }, data ? el('img', { src: data, alt: 'Your signature' }) : el('span', { style: 'color:#8e8e93', textContent: 'No signature yet' })));
+      body.append(el('div', { class: 'sigprev' }, data ? el('img', { src: data, alt: 'Your signature' }) : el('span', { style: 'color:#6c6c70', textContent: 'No signature yet' })));
       cta.append(btn(data ? 'Draw New Signature' : 'Draw Signature', () => openSigPad((ok) => { setTimeout(() => TOOLS.signature(), ok ? 420 : 0); })));
       if (data) cta.append(el('button', { class: 'btn danger', textContent: 'Delete Signature', onclick: async () => { if (await confirmDelete('Delete Signature?')) { localStorage.removeItem('signature'); TOOLS.signature(); } } }));
     }, back);

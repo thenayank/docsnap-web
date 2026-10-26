@@ -150,14 +150,24 @@ const Vault = (() => {
     // records from a backup restored on a fresh phone get sealed under the new DK in the same transaction
     for (const [id, bytes] of (opts.blobs || new Map())) ops.push(['rec', 'put', id, await encRec(id, bytes, dk)]);
     ops.push(['rec', 'put', 'index', await encRec('index', te.encode(JSON.stringify(index)), dk)]);
-    ops.push(['cfg', 'put', 'cfg', { v: 1, created: Date.now(), pin: { salt: ps, kdf: KDF, ...pinW }, rec: { salt: rs, kdf: KDF, ...recW }, canary: can, prf: null, lock: { fails: 0, until: 0 }, grace: 0 }]);
+    ops.push(['cfg', 'put', 'cfg', { v: 1, created: Date.now(), pin: { salt: ps, kdf: KDF, ...pinW }, rec: { salt: rs, kdf: KDF, ...recW }, canary: can, prf: null, lock: { fails: 0, until: 0 }, rlock: { fails: 0, until: 0 }, grace: 0 }]);
     await write(ops);
     await begin(dkRaw, index);
     return code;
   }
 
   // ---------- unlock paths ----------
-  async function lockInfo() { const c = await cfg(); const l = (c && c.lock) || { fails: 0, until: 0 }; return { fails: l.fails, until: l.until, left: Math.max(0, PIN_TRIES - l.fails), lockedFor: Math.max(0, l.until - Date.now()) }; }
+  const lockOf = (l) => { l = l || { fails: 0, until: 0 }; return { fails: l.fails || 0, until: l.until || 0, left: Math.max(0, PIN_TRIES - (l.fails || 0)), lockedFor: Math.max(0, (l.until || 0) - Date.now()) }; };
+  async function lockInfo() { const c = await cfg(); return lockOf(c && c.lock); }
+  /** Recovery-code attempts have their own counter (cfg.rlock), same rule as the PIN: 5 wrong → 1 min, then 5, then 15 min. Persists in IndexedDB. */
+  async function recLockInfo() { const c = await cfg(); return lockOf(c && c.rlock); }
+  /** One more wrong attempt on counter `key` ('lock' | 'rlock'). Re-reads cfg so a parallel attempt is never lost. */
+  async function failAttempt(key) {
+    const c2 = await cfg(); const fails = ((c2[key] && c2[key].fails) || 0) + 1; let until = 0;
+    if (fails >= PIN_TRIES) until = Date.now() + LOCK_STEPS[Math.min(fails - PIN_TRIES, LOCK_STEPS.length - 1)];
+    c2[key] = { fails, until }; await putCfg(c2);
+    return { ok: false, err: until ? 'locked' : 'wrong', until, fails, left: Math.max(0, PIN_TRIES - fails) };
+  }
   async function unlockPin(pin) {
     const c = await cfg(); if (!c) throw err('NO_VAULT');
     const l = c.lock || { fails: 0, until: 0 };
@@ -166,12 +176,7 @@ const Vault = (() => {
     try { dkRaw = await unseal(await pinKek(String(pin), c.pin.salt, c.pin.kdf), c.pin, 'wrap:pin'); }
     catch (e) { if (e.code === 'NO_DEVICE_SECRET') return { ok: false, err: 'newdevice' }; }
     const c2 = await cfg(); // re-read: the lock state may have moved while Argon2 ran
-    if (!dkRaw) {
-      const fails = (c2.lock.fails || 0) + 1; let until = 0;
-      if (fails >= PIN_TRIES) until = Date.now() + LOCK_STEPS[Math.min(fails - PIN_TRIES, LOCK_STEPS.length - 1)];
-      c2.lock = { fails, until }; await putCfg(c2);
-      return { ok: false, err: until ? 'locked' : 'wrong', until, fails, left: Math.max(0, PIN_TRIES - fails) };
-    }
+    if (!dkRaw) return failAttempt('lock');
     c2.lock = { fails: 0, until: 0 }; await putCfg(c2);
     await begin(dkRaw, null); await loadIndex(); return { ok: true };
   }
@@ -212,8 +217,13 @@ const Vault = (() => {
   async function unlockRecovery(code) {
     if (!validCode(code)) return { ok: false, err: 'format' };
     const c = await cfg(); if (!c) throw err('NO_VAULT');
-    try { const dkRaw = await unseal(await recKek(code, c.rec.salt, c.rec.kdf), c.rec, 'wrap:rec'); S = { dkRaw, dk: await importDk(dkRaw), index: null, recovering: true }; return { ok: true }; }
-    catch (e) { return { ok: false, err: 'wrong' }; }
+    const l = c.rlock || { fails: 0, until: 0 };
+    if (l.until > Date.now()) return { ok: false, err: 'locked', until: l.until, fails: l.fails, left: 0 };
+    let dkRaw = null;
+    try { dkRaw = await unseal(await recKek(code, c.rec.salt, c.rec.kdf), c.rec, 'wrap:rec'); } catch (e) { /* wrong code */ }
+    if (!dkRaw) return failAttempt('rlock');
+    const c2 = await cfg(); c2.rlock = { fails: 0, until: 0 }; await putCfg(c2);
+    S = { dkRaw, dk: await importDk(dkRaw), index: null, recovering: true }; return { ok: true };
   }
   /** Mandatory after a recovery-code unlock: new PIN, new device secret, new DK (re-encrypt everything), new recovery code.
       All of it lands in one IndexedDB transaction, so the old code stops working the moment this resolves. Returns the new code. */
@@ -229,7 +239,7 @@ const Vault = (() => {
     const c = await cfg();
     const ops = [['dev', 'put', 'k', dev], ['rec', 'clear']];
     for (const [id, bytes] of plain) { ops.push(['rec', 'put', id, await encRec(id, bytes, dk)]); wipe(bytes); }
-    Object.assign(c, { pin: { salt: ps, kdf: KDF, ...pinW }, rec: { salt: rs, kdf: KDF, ...recW }, canary: can, prf: null, lock: { fails: 0, until: 0 }, rotated: Date.now() });
+    Object.assign(c, { pin: { salt: ps, kdf: KDF, ...pinW }, rec: { salt: rs, kdf: KDF, ...recW }, canary: can, prf: null, lock: { fails: 0, until: 0 }, rlock: { fails: 0, until: 0 }, rotated: Date.now() });
     ops.push(['cfg', 'put', 'cfg', c]);
     await write(ops);
     wipe(S.dkRaw); await begin(dkRaw, null); await loadIndex();
@@ -274,20 +284,54 @@ const Vault = (() => {
     const hl = new Uint8Array(4); new DataView(hl.buffer).setUint32(0, head.length);
     return new Blob([MAGIC, hl, head, ct], { type: 'application/octet-stream' });
   }
-  /** Decrypt a backup into memory. Returns { index, blobs: Map(id → bytes) } or throws {code:'BAD_FILE'|'WRONG_PASSWORD'}. */
+  // Backup header limits. Anything outside these is a damaged or foreign file, rejected before any key derivation.
+  const BK = { maxHead: 1024, mMin: 65536, mMax: 262144 /* 256 MiB */, tMin: 1, tMax: 10, p: 1, salt: 16, iv: 12, tag: 16 };
+  const BAD_FILE_MSG = 'Backup file kharab hai ya DocSnap ki nahi hai.';
+  const DECRYPT_MSG = 'Password galat hai ya file kharab hai.';
+  const isInt = (x, lo, hi) => Number.isInteger(x) && x >= lo && x <= hi;
+  const sameKeys = (o, ks) => o && typeof o === 'object' && !Array.isArray(o) && Object.keys(o).sort().join() === ks.slice().sort().join();
+  /** Strict base64 → bytes of exactly n length, or null (canonical encoding only). */
+  function b64n(s, n) {
+    if (typeof s !== 'string' || !/^[A-Za-z0-9+/]*={0,2}$/.test(s) || s.length !== Math.ceil(n / 3) * 4) return null;
+    let u; try { u = unb64(s); } catch (e) { return null; }
+    return u.length === n && b64(u) === s ? u : null;
+  }
+  /** Parse + validate a backup file's header. Never throws anything but BAD_FILE. */
+  function parseBackupHeader(buf) {
+    const bad = () => err('BAD_FILE', BAD_FILE_MSG);
+    if (!(buf instanceof Uint8Array) || buf.length < 12) throw bad();
+    for (let i = 0; i < 8; i++) if (buf[i] !== MAGIC[i]) throw bad();
+    const hl = new DataView(buf.buffer, buf.byteOffset + 8, 4).getUint32(0);
+    if (hl < 2 || hl > BK.maxHead || buf.length < 12 + hl + BK.tag + 4) throw bad();
+    const head = buf.subarray(12, 12 + hl);
+    let h; try { h = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(head)); } catch (e) { throw bad(); }
+    if (!sameKeys(h, ['v', 'app', 'kdf', 'salt', 'iv']) || h.v !== 1 || h.app !== 'DocSnap') throw bad();
+    const k = h.kdf;
+    if (!sameKeys(k, ['alg', 'm', 't', 'p']) || k.alg !== 'argon2id' || !isInt(k.m, BK.mMin, BK.mMax) || !isInt(k.t, BK.tMin, BK.tMax) || k.p !== BK.p) throw bad();
+    const salt = b64n(h.salt, BK.salt), iv = b64n(h.iv, BK.iv);
+    if (!salt || !iv) throw bad();
+    return { head, kdf: { m: k.m, t: k.t, p: k.p }, salt, iv, ct: buf.subarray(12 + hl) };
+  }
+  /** Decrypt a backup into memory. Returns { index, blobs: Map(id → bytes) } or throws a friendly error:
+      BAD_FILE (header damaged / not a DocSnap backup) · DECRYPT_FAILED (wrong password or damaged body — AES-GCM can't tell them apart;
+      the v1 format has no key-check value) · READ_FAILED (anything else). e.message is always safe to show. */
   async function readBackup(file, password) {
-    const buf = new Uint8Array(await file.arrayBuffer());
-    if (buf.length < 16 || td.decode(buf.subarray(0, 8)) !== 'DSVAULT1') throw err('BAD_FILE', 'Ye DocSnap backup file nahi hai');
-    const hl = new DataView(buf.buffer, buf.byteOffset + 8, 4).getUint32(0), head = buf.subarray(12, 12 + hl);
-    let h; try { h = JSON.parse(td.decode(head)); } catch (e) { throw err('BAD_FILE', 'Ye DocSnap backup file nahi hai'); }
-    const k = { m: h.kdf.m, t: h.kdf.t, p: h.kdf.p };
-    if (h.kdf.alg !== 'argon2id' || k.m < 65536 || k.m > 1048576 || k.t < 1 || k.t > 10) throw err('BAD_FILE', 'Unsupported backup');
-    const key = await hkdf(await argon(te.encode(password), unb64(h.salt), k, 'backup'), 'docsnap backup v1');
-    let plain; try { plain = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(h.iv), additionalData: head }, key, buf.subarray(12 + hl))); }
-    catch (e) { throw err('WRONG_PASSWORD', 'Password sahi nahi hai'); }
-    const ml = new DataView(plain.buffer, 0, 4).getUint32(0), man = JSON.parse(td.decode(plain.subarray(4, 4 + ml))), base = 4 + ml;
-    const blobs = new Map(); for (const b of man.blobs) blobs.set(b.id, plain.slice(base + b.off, base + b.off + b.len));
-    wipe(plain); return { index: man.index, blobs };
+    let buf; try { buf = new Uint8Array(await file.arrayBuffer()); } catch (e) { throw err('READ_FAILED', 'Ye file nahi khul saki. Dobara chunein.'); }
+    const H = parseBackupHeader(buf);
+    let key;
+    try { key = await hkdf(await argon(te.encode(String(password)), H.salt, H.kdf, 'backup'), 'docsnap backup v1'); }
+    catch (e) { throw err(e.code === 'ARGON_LOAD' ? 'ARGON_LOAD' : 'READ_FAILED', e.code === 'ARGON_LOAD' ? 'Encryption engine load nahi hua. Internet on karke dobara koshish karein.' : 'Backup abhi nahi khul saka. App band karke dobara koshish karein.'); }
+    let plain; try { plain = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: H.iv, additionalData: H.head }, key, H.ct)); }
+    catch (e) { throw err('DECRYPT_FAILED', DECRYPT_MSG); }
+    try {
+      const ml = new DataView(plain.buffer, plain.byteOffset, 4).getUint32(0); if (4 + ml > plain.length) throw 0;
+      const man = JSON.parse(td.decode(plain.subarray(4, 4 + ml))), base = 4 + ml;
+      if (!man || !man.index || !Array.isArray(man.index.docs) || !Array.isArray(man.index.members) || !Array.isArray(man.blobs)) throw 0;
+      const blobs = new Map();
+      for (const b of man.blobs) { if (typeof b.id !== 'string' || !isInt(b.off, 0, plain.length) || !isInt(b.len, 0, plain.length) || base + b.off + b.len > plain.length) throw 0; blobs.set(b.id, plain.slice(base + b.off, base + b.off + b.len)); }
+      return { index: man.index, blobs };
+    } catch (e) { throw err('BAD_FILE', BAD_FILE_MSG); }
+    finally { wipe(plain); }
   }
   /** Bring a decrypted backup into the open vault. mode: 'merge' | 'replace'. */
   async function restore(data, mode = 'merge') {
@@ -312,7 +356,7 @@ const Vault = (() => {
   async function _raw() { const out = {}; for (const s of ['cfg', 'dev', 'rec']) { out[s] = {}; for (const k of await keys(s)) out[s][k] = await get(s, k); } return out; }
   async function destroy() { lock(); await write([['cfg', 'clear'], ['dev', 'clear'], ['rec', 'clear']]); }
 
-  return { KDF, stats, state, setup, unlockPin, unlockPrf, unlockRecovery, finishRecovery, changePin, enablePrf, disablePrf, hasPrf, prfSupported, lock, lockInfo,
+  return { KDF, stats, state, setup, unlockPin, unlockPrf, unlockRecovery, finishRecovery, changePin, enablePrf, disablePrf, hasPrf, prfSupported, lock, lockInfo, recLockInfo,
     isUnlocked, recovering: () => !!(S && S.recovering), index: () => S && S.index, saveIndex, putBlob, getBlob, delBlobs, commit, newId,
-    exportBackup, readBackup, restore, markBackup, setGrace, getGrace, genCode, normCode, validCode, fmtCode, strength, argon, ensureArgon, destroy, _forgetDevice, _raw, CROCK };
+    exportBackup, readBackup, parseBackupHeader, restore, markBackup, setGrace, getGrace, genCode, normCode, validCode, fmtCode, strength, argon, ensureArgon, destroy, _forgetDevice, _raw, CROCK };
 })();
